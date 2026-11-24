@@ -256,8 +256,7 @@ def _powershell_adapter_entries(
     script = r"""
 $rows = Get-NetIPConfiguration | Where-Object {
     $_.IPv4Address -and
-    $_.IPv4DefaultGateway -and
-    $_.NetAdapter.Status -eq 'Up'
+    $_.IPv4DefaultGateway
 } | ForEach-Object {
     $v4 = $_.IPv4Address | Select-Object -First 1
     $gateway = $_.IPv4DefaultGateway | Select-Object -First 1
@@ -372,6 +371,8 @@ def discover_networks(
     targets.sort(key=lambda item: (item.interface, item.scan_range))
     if not targets and not warnings:
         warnings.append("未找到带 IPv4 默认网关的物理网卡")
+    if not entries:
+        warnings.append("未读取到网卡信息（GetAdaptersInfo 与 Get-NetIPConfiguration 均为空）")
     return targets, warnings
 
 

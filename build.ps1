@@ -88,11 +88,22 @@ if (-not (Test-Path -LiteralPath $BuiltExe)) {
 Copy-Item -LiteralPath $BuiltExe -Destination $ExePath -Force
 
 $SelfTestResult = Join-Path $ReleaseDir "selftest.json"
-$Process = Start-Process `
-    -FilePath $ExePath `
-    -ArgumentList @("--selftest", "--result-file", "`"$SelfTestResult`"") `
-    -Wait `
-    -PassThru
+# Allow the CI runner's large subnet to be reported by the self-test only.
+$PreviousMaxHosts = $env:SCAN_MAX_HOSTS
+$env:SCAN_MAX_HOSTS = "65534"
+try {
+    $Process = Start-Process `
+        -FilePath $ExePath `
+        -ArgumentList @("--selftest", "--result-file", "`"$SelfTestResult`"") `
+        -Wait `
+        -PassThru
+} finally {
+    if ($null -eq $PreviousMaxHosts) {
+        Remove-Item Env:SCAN_MAX_HOSTS -ErrorAction SilentlyContinue
+    } else {
+        $env:SCAN_MAX_HOSTS = $PreviousMaxHosts
+    }
+}
 if ($Process.ExitCode -ne 0) {
     throw "EXE self-test failed with exit code $($Process.ExitCode)"
 }
@@ -141,6 +152,9 @@ if ($Smoke.ExitCode -ne 0) {
 $ExeHash = (Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$ExeHash  $ExeName" | Set-Content -LiteralPath (Join-Path $ReleaseDir "$ExeName.sha256") -Encoding ascii
 
+if ($SelfTest.warnings) {
+    Write-Output ("SelfTestWarnings : " + ($SelfTest.warnings -join " | "))
+}
 [pscustomobject]@{
     Version = $Version
     Exe = $ExePath
