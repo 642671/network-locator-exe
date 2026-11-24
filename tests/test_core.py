@@ -51,7 +51,7 @@ def make_target(**overrides) -> NetworkTarget:
 
 class NormalizationTests(unittest.TestCase):
     def test_version_is_reported(self) -> None:
-        self.assertEqual(__version__, "1.0.0")
+        self.assertEqual(__version__, "1.1.0")
 
     def test_mac_forms_normalize_to_dashes(self) -> None:
         self.assertEqual(normalize_mac("02:42:ac:11:00:05"), "02-42-AC-11-00-05")

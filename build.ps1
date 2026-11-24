@@ -63,6 +63,11 @@ foreach ($path in @($DistDir, $BuildDir, $ReleaseDir)) {
 }
 New-Item -ItemType Directory -Path $DistDir, $BuildDir, $ReleaseDir -Force | Out-Null
 
+& $PythonCommand @PythonPrefix -c "import webview, pathlib, sys; lib = pathlib.Path(webview.__file__).parent / 'lib'; print(lib); sys.exit(0 if lib.is_dir() else 1)"
+if ($LASTEXITCODE -ne 0) {
+    throw "pywebview runtime libraries are missing; run pip install -r requirements-build.txt"
+}
+
 & $PythonCommand @PythonPrefix -m PyInstaller `
     --noconfirm `
     --clean `
@@ -72,7 +77,9 @@ New-Item -ItemType Directory -Path $DistDir, $BuildDir, $ReleaseDir -Force | Out
     --icon (Join-Path $Root "assets\network-locator.ico") `
     --version-file (Join-Path $Root "version_info.txt") `
     --paths (Join-Path $Root "src") `
+    --hidden-import webview.platforms.edgechromium `
     --add-data "$(Join-Path $Root 'src\frontend');frontend" `
+    --add-data "$(Join-Path $Root 'assets\network-locator.ico');assets" `
     --distpath $DistDir `
     --workpath $BuildDir `
     --specpath $BuildDir `
@@ -115,6 +122,12 @@ foreach ($key in @("index_html", "app_js", "styles_css", "csv_js")) {
     if (-not $SelfTest.frontend.$key) {
         throw "EXE self-test is missing bundled WebUI file: $key"
     }
+}
+if (-not $SelfTest.webview_module) {
+    throw "EXE self-test did not find the bundled pywebview module"
+}
+if (-not $SelfTest.icon) {
+    throw "EXE self-test did not find the bundled application icon"
 }
 
 $ReadyFile = Join-Path $ReleaseDir "ready.json"
@@ -163,5 +176,6 @@ if ($SelfTest.warnings) {
     SelfTestStatus = $SelfTest.status
     SelfTestNetworks = $SelfTest.network_count
     WebUiIndex = $SelfTest.frontend.index_html
+    WebView2Runtime = $SelfTest.webview2_runtime
     SmokeHealth = $Health.status
 } | Format-List

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import importlib.util
 import json
 import logging
 import multiprocessing
 import os
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -27,6 +29,12 @@ from network_locator.server import (
 from network_locator.win_network import discover_networks
 
 CONFIG_FILENAME = "config.json"
+ICON_FILENAME = "network-locator.ico"
+NATIVE_WINDOW_TITLE = f"{APP_NAME} / Network Locator"
+NATIVE_WINDOW_TIMEOUT = 15.0
+WEBVIEW2_CLIENT_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+APP_USER_MODEL_ID = "642671.NetworkLocator.Windows"
+GUI_MODES = {"auto", "native", "app-window", "browser"}
 
 
 def app_data_dir() -> Path:
@@ -34,6 +42,14 @@ def app_data_dir() -> Path:
     path = Path(base) / "NetworkLocator"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def app_icon_path() -> Path | None:
+    candidates = [
+        FRONTEND_DIR.parent / "assets" / ICON_FILENAME,
+        SOURCE_ROOT / "assets" / ICON_FILENAME,
+    ]
+    return next((path for path in candidates if path.is_file()), None)
 
 
 def load_config() -> dict:
@@ -92,6 +108,48 @@ def show_info(message: str) -> None:
     print(message)
 
 
+def set_app_user_model_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        logging.debug("failed to set AppUserModelID", exc_info=True)
+
+
+def webview2_runtime_version() -> str:
+    if os.name != "nt":
+        return ""
+    try:
+        import winreg
+    except ImportError:
+        return ""
+    locations = [
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}",
+        ),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}",
+        ),
+        (
+            winreg.HKEY_CURRENT_USER,
+            rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}",
+        ),
+    ]
+    for root, subkey in locations:
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, "pv")
+        except OSError:
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def find_browser(configured: str = "") -> str | None:
     if configured and os.path.isfile(configured):
         return configured
@@ -113,6 +171,90 @@ def browser_profile_dir() -> Path:
     path = app_data_dir() / "browser-profile"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def run_native_window(url: str) -> tuple[bool, str]:
+    runtime = webview2_runtime_version()
+    if not runtime:
+        return False, "未检测到 Microsoft Edge WebView2 运行时"
+    try:
+        import webview
+    except Exception as exc:
+        logging.exception("pywebview is unavailable")
+        return False, f"pywebview 不可用（{exc}）"
+
+    storage_path = app_data_dir() / "webview"
+    icon = app_icon_path()
+    shown = threading.Event()
+    loaded = threading.Event()
+    closed = threading.Event()
+    finished = threading.Event()
+    try:
+        window = webview.create_window(
+            title=NATIVE_WINDOW_TITLE,
+            url=url,
+            width=1120,
+            height=720,
+            resizable=True,
+            min_size=(900, 600),
+            background_color="#f4f7fb",
+            text_select=False,
+        )
+        window.events.shown += shown.set
+        window.events.loaded += loaded.set
+        window.events.closed += closed.set
+    except Exception as exc:
+        logging.exception("native window creation failed")
+        return False, f"原生窗口创建失败（{exc}）"
+
+    def watchdog() -> None:
+        deadline = time.monotonic() + NATIVE_WINDOW_TIMEOUT
+        while not finished.is_set() and time.monotonic() < deadline:
+            if loaded.wait(0.5):
+                return
+        if finished.is_set() or loaded.is_set():
+            return
+        logging.error(
+            "native window did not finish loading within %.0f seconds",
+            NATIVE_WINDOW_TIMEOUT,
+        )
+        try:
+            window.destroy()
+        except Exception:
+            logging.exception("failed to close the unresponsive native window")
+
+    threading.Thread(
+        target=watchdog,
+        name="native-window-watchdog",
+        daemon=True,
+    ).start()
+
+    started = time.monotonic()
+    logging.info("native window starting webview2=%s url=%s", runtime, url)
+    try:
+        webview.start(
+            gui="edgechromium",
+            icon=str(icon) if icon else None,
+            private_mode=False,
+            storage_path=str(storage_path),
+        )
+    except Exception as exc:
+        logging.exception("native window failed")
+        return False, f"WebView2 窗口启动失败（{exc}）"
+    finally:
+        finished.set()
+
+    elapsed = time.monotonic() - started
+    if loaded.is_set() or closed.is_set():
+        logging.info(
+            "native window closed after %.1fs loaded=%s shown=%s",
+            elapsed,
+            loaded.is_set(),
+            shown.is_set(),
+        )
+        return True, ""
+    logging.error("native window closed before the page finished loading")
+    return False, "原生窗口已打开但页面未能加载"
 
 
 def launch_app_window(
@@ -145,8 +287,19 @@ def launch_app_window(
     return process
 
 
+def notify_fallback(message: str) -> None:
+    logging.warning("fallback: %s", message)
+
+    def _show() -> None:
+        time.sleep(1.0)
+        show_info(message)
+
+    threading.Thread(target=_show, name="fallback-notice", daemon=True).start()
+
+
 def run_selftest(result_file: str) -> int:
     result_path = Path(result_file).resolve()
+    icon = app_icon_path()
     frontend = {
         "dir": str(FRONTEND_DIR),
         "index_html": (FRONTEND_DIR / "index.html").is_file(),
@@ -162,6 +315,9 @@ def run_selftest(result_file: str) -> int:
         "frozen": bool(getattr(sys, "frozen", False)),
         "status": "error",
         "frontend": frontend,
+        "icon": str(icon) if icon else "",
+        "webview_module": importlib.util.find_spec("webview") is not None,
+        "webview2_runtime": webview2_runtime_version(),
     }
     try:
         targets, warnings = discover_networks()
@@ -227,11 +383,17 @@ def wait_for_browser(process: subprocess.Popen) -> None:
         time.sleep(0.75)
 
 
+def gui_mode() -> str:
+    mode = (os.environ.get("NETWORK_LOCATOR_GUI") or "auto").strip().lower()
+    if mode in GUI_MODES:
+        return mode
+    logging.warning("unknown NETWORK_LOCATOR_GUI=%s; using auto", mode)
+    return "auto"
+
+
 def run_application(port: int) -> int:
     config = load_config()
-    browser = find_browser(
-        os.environ.get("NETWORK_LOCATOR_BROWSER") or str(config.get("browser") or "")
-    )
+    mode = gui_mode()
     try:
         server, thread, url = start_server(port)
     except OSError as exc:
@@ -244,18 +406,45 @@ def run_application(port: int) -> int:
         return 2
 
     browser_process: subprocess.Popen | None = None
+    native_reason = ""
     try:
-        logging.info("serving url=%s", url)
-        if browser:
-            browser_process = launch_app_window(url, browser)
-            wait_for_browser(browser_process)
-        else:
-            logging.warning("no Edge/Chrome found; falling back to default browser")
-            webbrowser.open(url)
-            show_info(
-                "未找到 Microsoft Edge 或 Google Chrome，已使用默认浏览器打开。\n\n"
-                "关闭此提示即可退出 Network Locator。"
+        logging.info("serving url=%s gui_mode=%s", url, mode)
+        if mode in {"auto", "native"}:
+            ok, reason = run_native_window(url)
+            if ok:
+                return 0
+            native_reason = reason
+            logging.warning("native window unavailable: %s", reason)
+            if mode == "native":
+                show_error(f"无法启动原生窗口：{reason}")
+                return 3
+
+        if mode in {"auto", "app-window"}:
+            browser = find_browser(
+                os.environ.get("NETWORK_LOCATOR_BROWSER")
+                or str(config.get("browser") or "")
             )
+            if browser:
+                browser_process = launch_app_window(url, browser)
+                if native_reason:
+                    notify_fallback(f"{native_reason}，已改用浏览器应用窗口打开。")
+                wait_for_browser(browser_process)
+                return 0
+            logging.warning("no Edge/Chrome found; falling back to default browser")
+
+        webbrowser.open(url)
+        if native_reason:
+            show_info(
+                f"{native_reason}，且未找到 Microsoft Edge 或 Google Chrome，"
+                "已使用默认浏览器打开。\n\n"
+                "关闭此提示即退出 Network Locator。"
+            )
+        else:
+            show_info(
+                "已使用默认浏览器打开 Network Locator。\n\n"
+                "关闭此提示即退出 Network Locator。"
+            )
+        return 0
     finally:
         if browser_process is not None and browser_process.poll() is None:
             try:
@@ -264,7 +453,6 @@ def run_application(port: int) -> int:
             except Exception:
                 pass
         shutdown_server(server, thread)
-    return 0
 
 
 def main() -> int:
@@ -301,6 +489,7 @@ def main() -> int:
     port = args.port
     if port is None:
         port = int(os.environ.get("NETWORK_LOCATOR_PORT") or configured["port"])
+    set_app_user_model_id()
     try:
         return run_application(port)
     except Exception as exc:

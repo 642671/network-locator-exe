@@ -5,7 +5,7 @@
 - 与 TOS 版 [`network-locator`](https://github.com/642671/network-locator) 1.3.7 使用同一套 WebUI 与匹配逻辑
 - 单文件 `network-locator.exe`，无需安装 Python 或浏览器扩展
 - 只在本机回环地址 `127.0.0.1:18743` 提供页面，不对局域网开放端口
-- 自动使用 Microsoft Edge / Google Chrome 的应用窗口打开，界面与 TOS 版一致
+- 使用 WebView2（pywebview）打开原生应用窗口，没有浏览器地址栏和标签页，界面与 TOS 版一致
 
 ## 功能
 
@@ -30,8 +30,16 @@
 ## 下载与运行
 
 1. 从 [Releases](https://github.com/642671/network-locator-exe/releases) 下载 `network-locator.exe`
-2. 双击运行，应用会启动本地服务并打开 Edge/Chrome 应用窗口
+2. 双击运行，应用会启动本地服务并打开 WebView2 原生窗口
 3. 关闭应用窗口即退出；本地服务随进程一起停止
+
+窗口打开顺序（自动回退，不会白屏）：
+
+1. WebView2 原生窗口（需要 Microsoft Edge WebView2 运行时；Windows 10/11 通常已内置）
+2. 若运行时缺失或原生窗口启动失败：Microsoft Edge / Google Chrome 的 `--app` 应用窗口
+3. 若两者都不可用：系统默认浏览器，并提示关闭提示框即退出
+
+没有 WebView2 运行的机器可以从 [Microsoft WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) 安装 Evergreen Runtime 后重新打开应用。
 
 首次运行如果 Windows 防火墙询问，请允许该程序访问网络（仅需要出站 ICMP/ARP）。
 
@@ -43,9 +51,19 @@
 | --- | --- |
 | `%LOCALAPPDATA%\NetworkLocator\config.json` | 端口与浏览器选择 |
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | 运行日志 |
-| `%LOCALAPPDATA%\NetworkLocator\browser-profile\` | 应用窗口的浏览器配置（保留常用 MAC、主题与缓存） |
+| `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 原生窗口的本地存储（保留常用 MAC、主题与缓存） |
+| `%LOCALAPPDATA%\NetworkLocator\browser-profile\` | 回退到 Edge/Chrome 应用窗口时使用的浏览器配置 |
 
-设置 `NETWORK_LOCATOR_PORT` 可临时覆盖端口；设置 `NETWORK_LOCATOR_BROWSER` 可指定浏览器可执行文件。
+设置 `NETWORK_LOCATOR_PORT` 可临时覆盖端口；设置 `NETWORK_LOCATOR_BROWSER` 可指定回退用的浏览器可执行文件。
+
+设置 `NETWORK_LOCATOR_GUI` 可强制指定窗口模式，便于排查环境问题：
+
+| 值 | 行为 |
+| --- | --- |
+| `auto`（默认） | 原生窗口 → Edge/Chrome 应用窗口 → 默认浏览器 |
+| `native` | 只用 WebView2 原生窗口，失败则报错退出 |
+| `app-window` | 跳过原生窗口，直接使用 Edge/Chrome 应用窗口 |
+| `browser` | 直接使用默认浏览器 |
 
 ## 与 TOS 版的差异
 
@@ -84,7 +102,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 2. Python 单元测试（匹配、ARP 解析、扫描状态、HTTP 契约）
 3. `node --check` 与前端 Node 测试（需要 Node.js）
 4. PyInstaller 单文件打包
-5. EXE 自检 `--selftest`（网卡发现 + WebUI 资源完整性）
+5. EXE 自检 `--selftest`（网卡发现 + WebUI 资源 + pywebview 模块 + 图标完整性）
 6. EXE `--serve-only` 冒烟测试（`/health`、首页与版本占位符替换）
 7. 输出 `release\network-locator.exe` 与 `.sha256`
 
@@ -102,7 +120,8 @@ network-locator.exe --version
 ## 已知限制
 
 - 仅支持 Windows 10/11；依赖系统的 `ping.exe` 与 `arp.exe`
-- 应用窗口需要 Microsoft Edge 或 Google Chrome；两者都没有时会回退到默认浏览器
+- 原生窗口依赖 Microsoft Edge WebView2 运行时；缺失时会回退到 Edge/Chrome 应用窗口
+- 回退的应用窗口需要 Microsoft Edge 或 Google Chrome；两者都没有时会使用默认浏览器
 - 目标主机或本机防火墙禁止 ICMP 时，ping 结果会缺失，但 ARP 缓存中的设备仍会显示为“陈旧”
 - 扫描范围沿用 TOS 版的安全上限：单个网段最多 1022 台主机
 
