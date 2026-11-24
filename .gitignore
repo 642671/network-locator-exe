@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+release/
+assets/*.ico
+assets/*.png
+.playwright-cli/
+*.log
+ready.json
+selftest.json

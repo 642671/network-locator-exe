@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="网络定位">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".7" stop-color="#f2faff"/>
+      <stop offset="1" stop-color="#dcefff"/>
+    </radialGradient>
+    <linearGradient id="globe" x1="18" y1="20" x2="48" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5cc7ff"/>
+      <stop offset=".55" stop-color="#2b8cf5"/>
+      <stop offset="1" stop-color="#0b4fc9"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="24" y1="12" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#56c2ff"/>
+      <stop offset=".55" stop-color="#1f86f7"/>
+      <stop offset="1" stop-color="#0a5bdc"/>
+    </linearGradient>
+    <filter id="cornerShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy=".7" stdDeviation=".8" flood-color="#1d6fe0" flood-opacity=".55"/>
+    </filter>
+    <clipPath id="globeClip">
+      <circle cx="32" cy="38" r="19"/>
+    </clipPath>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <circle cx="32" cy="38" r="19" fill="url(#globe)"/>
+  <g clip-path="url(#globeClip)" fill="#9bd6ff" fill-opacity=".58">
+    <path d="M14 30c4-3 9-2 11 1s1 7-3 8-8-1-9-4Z"/>
+    <path d="M36 27c3-2 7-1 9 2s1 6-2 7-7 0-8-3Z"/>
+    <path d="M22 45c3-2 7-1 8 2s0 6-3 6-6-2-6-5Z"/>
+    <path d="M39 47c2-1 5 0 6 2s0 5-2 5-4-1-5-3Z"/>
+  </g>
+  <g clip-path="url(#globeClip)" fill="none" stroke="#ffffff" stroke-opacity=".58" stroke-width="1.1">
+    <ellipse cx="32" cy="38" rx="19" ry="7"/>
+    <ellipse cx="32" cy="38" rx="8" ry="19"/>
+    <path d="M13 38h38"/>
+    <path d="M16 28c8 4 24 4 32 0"/>
+    <path d="M16 48c8-4 24-4 32 0"/>
+  </g>
+  <ellipse cx="32" cy="41" rx="12" ry="4" fill="#ffffff" fill-opacity=".55"/>
+  <path d="M32 9c-7 0-12.5 5.4-12.5 12.2 0 9.2 12.5 21.3 12.5 21.3s12.5-12.1 12.5-21.3C44.5 14.4 39 9 32 9Z" fill="url(#pin)" stroke="#ffffff" stroke-width="1.6"/>
+  <circle cx="32" cy="21.5" r="4.8" fill="#ffffff"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#cornerShadow)">
+    <path d="M9 19v-5a5 5 0 0 1 5-5h5"/>
+    <path d="M55 19v-5a5 5 0 0 0-5-5h-5"/>
+    <path d="M9 45v5a5 5 0 0 0 5 5h5"/>
+    <path d="M55 45v5a5 5 0 0 1-5 5h-5"/>
+  </g>
+</svg>
