@@ -90,7 +90,7 @@ class DiscoveryAdapterTests(unittest.TestCase):
                 "interface_index": 22,
                 "interface_description": "Hyper-V Virtual Ethernet Adapter",
                 "local_ip": "172.20.0.1",
-                "prefix_length": 20,
+                "prefix_length": 24,
                 "gateway": "172.20.0.1",
                 "local_mac": "00-15-5D-00-00-01",
             },
@@ -117,6 +117,23 @@ class DiscoveryAdapterTests(unittest.TestCase):
         targets, warnings = discover_networks(adapter_reader=lambda: entries, max_hosts=1022)
         self.assertEqual(targets, [])
         self.assertTrue(any("安全上限" in warning for warning in warnings))
+
+    def test_virtual_adapter_is_used_when_it_is_the_only_path(self) -> None:
+        entries = [
+            {
+                "interface_alias": "vEthernet (Default Switch)",
+                "interface_index": 22,
+                "interface_description": "Hyper-V Virtual Ethernet Adapter",
+                "local_ip": "172.20.0.5",
+                "prefix_length": 24,
+                "gateway": "172.20.0.1",
+                "local_mac": "00-15-5D-00-00-01",
+            }
+        ]
+        targets, warnings = discover_networks(adapter_reader=lambda: entries)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].interface, "vEthernet (Default Switch)")
+        self.assertTrue(any("仅检测到虚拟网卡" in warning for warning in warnings))
 
     def test_network_payload_includes_stable_id(self) -> None:
         target = make_target()

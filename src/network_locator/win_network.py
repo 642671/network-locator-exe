@@ -257,8 +257,7 @@ def _powershell_adapter_entries(
 $rows = Get-NetIPConfiguration | Where-Object {
     $_.IPv4Address -and
     $_.IPv4DefaultGateway -and
-    $_.NetAdapter.Status -eq 'Up' -and
-    $_.NetAdapter.HardwareInterface -eq $true
+    $_.NetAdapter.Status -eq 'Up'
 } | ForEach-Object {
     $v4 = $_.IPv4Address | Select-Object -First 1
     $gateway = $_.IPv4DefaultGateway | Select-Object -First 1
@@ -308,18 +307,15 @@ def discover_networks(
         int(max_hosts or os.environ.get("SCAN_MAX_HOSTS", DEFAULT_MAX_HOSTS)),
     )
     targets: list[NetworkTarget] = []
+    virtual_targets: list[NetworkTarget] = []
+    virtual_names: list[str] = []
     warnings: list[str] = []
     seen: set[tuple[int, str]] = set()
-    skipped_virtual: set[str] = set()
 
     for entry in entries:
         alias = str(entry.get("interface_alias") or "")
         description = str(entry.get("interface_description") or "")
-        if is_virtual_interface(alias) or _is_virtual_description(description):
-            if alias and alias not in skipped_virtual:
-                warnings.append(f"已跳过虚拟网卡 {alias}")
-                skipped_virtual.add(alias)
-            continue
+        is_virtual = is_virtual_interface(alias) or _is_virtual_description(description)
         try:
             interface_index = int(entry["interface_index"])
             local_ip = str(entry["local_ip"])
@@ -344,22 +340,35 @@ def discover_networks(
             )
             continue
         seen.add(key)
-        targets.append(
-            NetworkTarget(
-                interface=alias or f"Adapter {interface_index}",
-                alias=alias or f"Adapter {interface_index}",
-                local_ip=local_ip,
-                prefix_length=network.prefixlen,
-                gateway=str(entry.get("gateway") or ""),
-                network=str(network.network_address),
-                broadcast=str(network.broadcast_address),
-                scan_range=str(network),
-                host_count=host_count,
-                local_source=local_ip,
-                local_mac=normalize_mac(str(entry.get("local_mac") or "")) or "",
-                interface_index=interface_index,
-            )
+        name = alias or f"Adapter {interface_index}"
+        target = NetworkTarget(
+            interface=name,
+            alias=name,
+            local_ip=local_ip,
+            prefix_length=network.prefixlen,
+            gateway=str(entry.get("gateway") or ""),
+            network=str(network.network_address),
+            broadcast=str(network.broadcast_address),
+            scan_range=str(network),
+            host_count=host_count,
+            local_source=local_ip,
+            local_mac=normalize_mac(str(entry.get("local_mac") or "")) or "",
+            interface_index=interface_index,
         )
+        if is_virtual:
+            virtual_targets.append(target)
+            if name not in virtual_names:
+                virtual_names.append(name)
+        else:
+            targets.append(target)
+
+    if not targets and virtual_targets:
+        targets = virtual_targets
+        for name in virtual_names:
+            warnings.append(f"仅检测到虚拟网卡 {name}，已作为可用网段")
+    else:
+        for name in virtual_names:
+            warnings.append(f"已跳过虚拟网卡 {name}")
     targets.sort(key=lambda item: (item.interface, item.scan_range))
     if not targets and not warnings:
         warnings.append("未找到带 IPv4 默认网关的物理网卡")

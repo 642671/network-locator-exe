@@ -12,7 +12,7 @@
 | 能力 | Windows 实现 |
 | --- | --- |
 | 网卡与网段发现 | `GetAdaptersInfo`（iphlpapi），失败时回退到 PowerShell `Get-NetIPConfiguration` |
-| 物理网卡过滤 | 跳过 Hyper-V、WSL、VMware、Tailscale、Docker 等虚拟网卡 |
+| 物理网卡过滤 | 跳过 Hyper-V、WSL、VMware、Tailscale、Docker 等虚拟网卡；若机器上只有虚拟网卡，则将其作为可用网段 |
 | 邻居表读取 | `arp.exe -a -N <本机地址>`，兼容中英文 Windows 输出 |
 | MAC 归一化 | `AA-BB`、`AA:BB`、`AABB` 三种输入；统一输出 `AA-BB-CC-DD-EE-FF` |
 | 扫描 | 选定网段、UDP 预热 ARP、并发 `ping` 探测、开始/停止状态机与进度 |
