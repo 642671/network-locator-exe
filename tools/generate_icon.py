@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
@@ -39,7 +39,7 @@ def draw_globe(icon: Image.Image) -> None:
     )
     mask = Image.new("L", (radius * 2, radius * 2), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, radius * 2 - 1, radius * 2 - 1), fill=255)
-    icon.alpha_composite(globe, (center[0] - radius, center[1] - radius), mask)
+    icon.paste(globe, (center[0] - radius, center[1] - radius), mask)
 
     overlay = Image.new("RGBA", icon.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -82,6 +82,14 @@ def draw_globe(icon: Image.Image) -> None:
         fill=stroke,
         width=width,
     )
+    clip = Image.new("L", icon.size, 0)
+    ImageDraw.Draw(clip).ellipse(
+        (center[0] - radius, center[1] - radius, center[0] + radius, center[1] + radius),
+        fill=255,
+    )
+    overlay.putalpha(
+        ImageChops.multiply(overlay.getchannel("A"), clip)
+    )
     icon.alpha_composite(overlay)
 
 
@@ -119,14 +127,17 @@ def draw_pin(icon: Image.Image) -> None:
         outline=(255, 255, 255, 235),
         width=ring_width,
     )
-    outline_draw.polygon(
-        (
-            (cx - head_r, head_y),
-            (cx + head_r, head_y),
-            (cx, tip_y),
-        ),
-        outline=(255, 255, 255, 235),
+    outline_draw.line(
+        (cx - head_r, head_y, cx, tip_y),
+        fill=(255, 255, 255, 235),
         width=ring_width,
+        joint="curve",
+    )
+    outline_draw.line(
+        (cx + head_r, head_y, cx, tip_y),
+        fill=(255, 255, 255, 235),
+        width=ring_width,
+        joint="curve",
     )
     icon.alpha_composite(outline)
 
