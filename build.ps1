@@ -119,12 +119,12 @@ $SelfTestErr = Join-Path $ReleaseDir "selftest.stderr.txt"
 $PreviousMaxHosts = $env:SCAN_MAX_HOSTS
 $env:SCAN_MAX_HOSTS = "65534"
 try {
+    $SelfTestCommand = "`"`"$ExePath`" --selftest --result-file `"$SelfTestResult`" > `"$SelfTestOut`" 2> `"$SelfTestErr`"`""
     $Process = Start-Process `
-        -FilePath $ExePath `
-        -ArgumentList @("--selftest", "--result-file", "`"$SelfTestResult`"") `
-        -RedirectStandardOutput $SelfTestOut `
-        -RedirectStandardError $SelfTestErr `
-        -PassThru
+        -FilePath $env:ComSpec `
+        -ArgumentList @("/c", $SelfTestCommand) `
+        -PassThru `
+        -WindowStyle Hidden
     if (-not $Process.WaitForExit(180000)) {
         Write-Host "== EXE self-test diagnostics =="
         Get-Process -Name "network-locator" -ErrorAction SilentlyContinue |
@@ -144,6 +144,9 @@ try {
         Stop-ProcessTree $Process
         throw "EXE self-test timed out after 180 seconds"
     }
+    $ExitCode = $null
+    try { $Process.Refresh(); $ExitCode = $Process.ExitCode } catch {}
+    Write-Host "EXE self-test exit code: $ExitCode"
 } finally {
     if ($null -eq $PreviousMaxHosts) {
         Remove-Item Env:SCAN_MAX_HOSTS -ErrorAction SilentlyContinue
@@ -151,8 +154,18 @@ try {
         $env:SCAN_MAX_HOSTS = $PreviousMaxHosts
     }
 }
-if ($Process.ExitCode -ne 0) {
-    throw "EXE self-test failed with exit code $($Process.ExitCode)"
+if ($ExitCode -ne 0) {
+    throw "EXE self-test failed with exit code $ExitCode"
+}
+if (-not (Test-Path -LiteralPath $SelfTestResult)) {
+    Write-Host "== EXE self-test output =="
+    foreach ($Path in @($SelfTestOut, $SelfTestErr)) {
+        Write-Host "--- $Path ---"
+        if (Test-Path -LiteralPath $Path) {
+            Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | Write-Host
+        }
+    }
+    throw "EXE self-test did not write a result file"
 }
 $SelfTest = Get-Content -LiteralPath $SelfTestResult -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($SelfTest.status -ne "ok") {
@@ -172,16 +185,32 @@ if (-not $SelfTest.icon) {
 
 Write-Host "== EXE startup smoke test =="
 $SmokeTestResult = Join-Path $ReleaseDir "smoke.json"
+$SmokeTestOut = Join-Path $ReleaseDir "smoke.stdout.txt"
+$SmokeTestErr = Join-Path $ReleaseDir "smoke.stderr.txt"
+$SmokeTestCommand = "`"`"$ExePath`" --smoke-test --result-file `"$SmokeTestResult`" > `"$SmokeTestOut`" 2> `"$SmokeTestErr`"`""
 $SmokeTestProcess = Start-Process `
-    -FilePath $ExePath `
-    -ArgumentList @("--smoke-test", "--result-file", "`"$SmokeTestResult`"") `
-    -PassThru
+    -FilePath $env:ComSpec `
+    -ArgumentList @("/c", $SmokeTestCommand) `
+    -PassThru `
+    -WindowStyle Hidden
 if (-not $SmokeTestProcess.WaitForExit(180000)) {
     Stop-ProcessTree $SmokeTestProcess
     throw "EXE startup smoke test timed out after 180 seconds"
 }
-if ($SmokeTestProcess.ExitCode -ne 0) {
-    throw "EXE startup smoke test failed with exit code $($SmokeTestProcess.ExitCode)"
+$SmokeExitCode = $null
+try { $SmokeTestProcess.Refresh(); $SmokeExitCode = $SmokeTestProcess.ExitCode } catch {}
+Write-Host "EXE smoke test exit code: $SmokeExitCode"
+if ($SmokeExitCode -ne 0) {
+    foreach ($Path in @($SmokeTestOut, $SmokeTestErr)) {
+        Write-Host "--- $Path ---"
+        if (Test-Path -LiteralPath $Path) {
+            Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | Write-Host
+        }
+    }
+    throw "EXE startup smoke test failed with exit code $SmokeExitCode"
+}
+if (-not (Test-Path -LiteralPath $SmokeTestResult)) {
+    throw "EXE startup smoke test did not write a result file"
 }
 $SmokeTest = Get-Content -LiteralPath $SmokeTestResult -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($SmokeTest.status -ne "ok") {
@@ -220,8 +249,11 @@ if (-not $Smoke.WaitForExit(20000)) {
     Stop-ProcessTree $Smoke
     throw "serve-only process did not exit after its duration"
 }
-if ($Smoke.ExitCode -ne 0) {
-    throw "serve-only process exited with $($Smoke.ExitCode)"
+$ServeExitCode = $null
+try { $Smoke.Refresh(); $ServeExitCode = $Smoke.ExitCode } catch {}
+Write-Host "serve-only exit code: $ServeExitCode"
+if ($null -ne $ServeExitCode -and $ServeExitCode -ne 0) {
+    throw "serve-only process exited with $ServeExitCode"
 }
 
 $ExeHash = (Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
