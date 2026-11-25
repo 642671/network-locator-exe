@@ -39,6 +39,7 @@ WEBVIEW_PROFILE_BACKUP_LIMIT = 3
 WEBVIEW2_CLIENT_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 APP_USER_MODEL_ID = "642671.NetworkLocator.Windows"
 GUI_MODES = {"auto", "native", "app-window", "browser"}
+HARD_EXIT = False
 
 
 def app_data_dir() -> Path:
@@ -542,6 +543,8 @@ def gui_mode() -> str:
 
 
 def run_application(port: int) -> int:
+    global HARD_EXIT
+    HARD_EXIT = True
     config = load_config()
     mode = gui_mode()
     try:
@@ -674,4 +677,6 @@ if __name__ == "__main__":
     exit_code = main()
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(exit_code)
+    if HARD_EXIT:
+        os._exit(exit_code)
+    raise SystemExit(exit_code)

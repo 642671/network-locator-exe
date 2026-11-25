@@ -13,6 +13,12 @@ $ExePath = Join-Path $ReleaseDir $ExeName
 
 Set-Location -LiteralPath $Root
 
+function Stop-ProcessTree($Process) {
+    if ($null -eq $Process) { return }
+    try { & taskkill.exe /T /F /PID $Process.Id | Out-Null } catch {}
+    try { $Process.Kill() } catch {}
+}
+
 $PythonCommand = if ($env:NETLOC_PYTHON) { $env:NETLOC_PYTHON } else { "python" }
 $PythonPrefix = @()
 if ([IO.Path]::GetFileNameWithoutExtension($PythonCommand) -eq "py") {
@@ -24,6 +30,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Icon generation failed"
 }
 
+Write-Host "== Python tests and syntax checks =="
 if (-not $SkipTests) {
     & $PythonCommand @PythonPrefix -m unittest discover -s tests -v
     if ($LASTEXITCODE -ne 0) {
@@ -77,6 +84,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "pywebview runtime libraries are missing; run pip install -r requirements-build.txt"
 }
 
+Write-Host "== PyInstaller build =="
 & $PythonCommand @PythonPrefix -m PyInstaller `
     --noconfirm `
     --clean `
@@ -103,6 +111,7 @@ if (-not (Test-Path -LiteralPath $BuiltExe)) {
 }
 Copy-Item -LiteralPath $BuiltExe -Destination $ExePath -Force
 
+Write-Host "== EXE self-test =="
 $SelfTestResult = Join-Path $ReleaseDir "selftest.json"
 # Allow the CI runner's large subnet to be reported by the self-test only.
 $PreviousMaxHosts = $env:SCAN_MAX_HOSTS
@@ -111,8 +120,11 @@ try {
     $Process = Start-Process `
         -FilePath $ExePath `
         -ArgumentList @("--selftest", "--result-file", "`"$SelfTestResult`"") `
-        -Wait `
         -PassThru
+    if (-not $Process.WaitForExit(180000)) {
+        Stop-ProcessTree $Process
+        throw "EXE self-test timed out after 180 seconds"
+    }
 } finally {
     if ($null -eq $PreviousMaxHosts) {
         Remove-Item Env:SCAN_MAX_HOSTS -ErrorAction SilentlyContinue
@@ -139,12 +151,16 @@ if (-not $SelfTest.icon) {
     throw "EXE self-test did not find the bundled application icon"
 }
 
+Write-Host "== EXE startup smoke test =="
 $SmokeTestResult = Join-Path $ReleaseDir "smoke.json"
 $SmokeTestProcess = Start-Process `
     -FilePath $ExePath `
     -ArgumentList @("--smoke-test", "--result-file", "`"$SmokeTestResult`"") `
-    -Wait `
     -PassThru
+if (-not $SmokeTestProcess.WaitForExit(180000)) {
+    Stop-ProcessTree $SmokeTestProcess
+    throw "EXE startup smoke test timed out after 180 seconds"
+}
 if ($SmokeTestProcess.ExitCode -ne 0) {
     throw "EXE startup smoke test failed with exit code $($SmokeTestProcess.ExitCode)"
 }
@@ -156,6 +172,7 @@ if ($SmokeTest.index_status -ne 200 -or $SmokeTest.api_status -ne 200) {
     throw "EXE startup smoke test did not receive HTTP 200"
 }
 
+Write-Host "== serve-only smoke test =="
 $ReadyFile = Join-Path $ReleaseDir "ready.json"
 $Smoke = Start-Process `
     -FilePath $ExePath `
@@ -181,7 +198,7 @@ if ($HomeResponse.Content -match "__APP_VERSION__") {
     throw "WebUI version placeholder was not substituted"
 }
 if (-not $Smoke.WaitForExit(20000)) {
-    $Smoke.Kill()
+    Stop-ProcessTree $Smoke
     throw "serve-only process did not exit after its duration"
 }
 if ($Smoke.ExitCode -ne 0) {
