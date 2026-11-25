@@ -113,6 +113,8 @@ Copy-Item -LiteralPath $BuiltExe -Destination $ExePath -Force
 
 Write-Host "== EXE self-test =="
 $SelfTestResult = Join-Path $ReleaseDir "selftest.json"
+$SelfTestOut = Join-Path $ReleaseDir "selftest.stdout.txt"
+$SelfTestErr = Join-Path $ReleaseDir "selftest.stderr.txt"
 # Allow the CI runner's large subnet to be reported by the self-test only.
 $PreviousMaxHosts = $env:SCAN_MAX_HOSTS
 $env:SCAN_MAX_HOSTS = "65534"
@@ -120,8 +122,25 @@ try {
     $Process = Start-Process `
         -FilePath $ExePath `
         -ArgumentList @("--selftest", "--result-file", "`"$SelfTestResult`"") `
+        -RedirectStandardOutput $SelfTestOut `
+        -RedirectStandardError $SelfTestErr `
         -PassThru
     if (-not $Process.WaitForExit(180000)) {
+        Write-Host "== EXE self-test diagnostics =="
+        Get-Process -Name "network-locator" -ErrorAction SilentlyContinue |
+            Select-Object Id, StartTime, MainWindowTitle, Responding |
+            Format-Table -AutoSize | Out-String | Write-Host
+        Get-ChildItem -Path $env:TEMP -Filter "_MEI*" -Directory -ErrorAction SilentlyContinue |
+            Select-Object FullName, LastWriteTime |
+            Format-Table -AutoSize | Out-String | Write-Host
+        foreach ($Path in @($SelfTestOut, $SelfTestErr, $SelfTestResult, (Join-Path $env:LOCALAPPDATA "NetworkLocator\logs\app.log"))) {
+            Write-Host "--- $Path ---"
+            if (Test-Path -LiteralPath $Path) {
+                Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | Write-Host
+            } else {
+                Write-Host "(missing)"
+            }
+        }
         Stop-ProcessTree $Process
         throw "EXE self-test timed out after 180 seconds"
     }
