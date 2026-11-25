@@ -832,8 +832,21 @@ def main() -> int:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    exit_code = main()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    logging.shutdown()
-    os._exit(exit_code)
+    exit_code = 1
+    try:
+        exit_code = main()
+    except SystemExit as exc:
+        code = exc.code
+        exit_code = code if isinstance(code, int) else 0
+    except BaseException:
+        logging.exception("launcher crashed")
+        exit_code = 1
+    finally:
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                if stream is not None:
+                    stream.flush()
+            except Exception:
+                pass
+        logging.shutdown()
+        os._exit(exit_code)
