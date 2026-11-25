@@ -234,6 +234,7 @@ if (-not (Test-Path -LiteralPath $ReadyFile)) {
     throw "serve-only did not report a ready file"
 }
 $Ready = Get-Content -LiteralPath $ReadyFile -Raw -Encoding UTF8 | ConvertFrom-Json
+Write-Host "serve-only ready: $($Ready | ConvertTo-Json -Compress)"
 $Health = Invoke-RestMethod -Uri ($Ready.url.TrimEnd("/") + "/health") -TimeoutSec 10
 if ($Health.app -ne "network-locator" -or $Health.version -ne $Version) {
     throw "health payload mismatch: $($Health | ConvertTo-Json -Compress)"
@@ -245,7 +246,19 @@ if ($HomeResponse.StatusCode -ne 200 -or $HomeResponse.Content -notmatch "网络
 if ($HomeResponse.Content -match "__APP_VERSION__") {
     throw "WebUI version placeholder was not substituted"
 }
+Write-Host "serve-only health and WebUI checks passed"
 if (-not $Smoke.WaitForExit(45000)) {
+    Write-Host "== serve-only diagnostics =="
+    Get-Process -Name "network-locator" -ErrorAction SilentlyContinue |
+        Select-Object Id, StartTime, MainWindowTitle, Responding |
+        Format-Table -AutoSize | Out-String | Write-Host
+    $AppLog = Join-Path $env:LOCALAPPDATA "NetworkLocator\logs\app.log"
+    Write-Host "--- $AppLog ---"
+    if (Test-Path -LiteralPath $AppLog) {
+        Get-Content -LiteralPath $AppLog -Tail 40 -Encoding UTF8 | Write-Host
+    } else {
+        Write-Host "(missing)"
+    }
     Stop-ProcessTree $Smoke
     throw "serve-only process did not exit after its duration"
 }

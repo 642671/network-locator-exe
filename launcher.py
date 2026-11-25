@@ -522,7 +522,9 @@ def run_server_only(port: int, ready_file: str, duration: float) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        logging.info("serve-only duration elapsed")
         shutdown_server(server, thread)
+    logging.info("serve-only shutdown complete")
     return 0
 
 

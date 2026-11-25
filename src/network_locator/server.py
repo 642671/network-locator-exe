@@ -804,9 +804,13 @@ def shutdown_server(
     server.scan_manager.wait(2.0)
     server.shutdown()
     thread.join(timeout=3)
+    LOGGER.info("http thread stopped")
     server.server_close()
+    LOGGER.info("http server closed")
     if getattr(server, "_owns_store", False):
         try:
             server.store.close()
         except Exception:
             LOGGER.exception("failed to close device store")
+        else:
+            LOGGER.info("device store closed")
