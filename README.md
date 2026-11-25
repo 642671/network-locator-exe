@@ -21,7 +21,7 @@ V2 不是换肤：设备档案、扫描历史、MAC 定位、网络分析和设�
 - 后端：Python 3.10+ 标准库；Windows 网卡 API、`arp.exe`、并发 `ping.exe`
 - 持久化：SQLite（WAL），无第三方 Python 依赖
 - 前端：原生 HTML/CSS/JavaScript，无打包链、无前端运行时
-- 桌面窗口：pywebview + Microsoft Edge WebView2，失败时回退 Edge/Chrome 应用窗口
+- 桌面窗口：pywebview + Microsoft Edge WebView2，运行在独立子进程中，失败时回退 Edge/Chrome 应用窗口
 - 本地 API：`http://127.0.0.1:<port>/api/v2/*`
 
 ## 数据模型
@@ -84,6 +84,8 @@ python launcher.py --smoke-test --result-file smoke.json
 
 如果 WebView2 原生窗口无法初始化，启动器会重建 `%LOCALAPPDATA%\NetworkLocator\webview` 缓存，并在本次运行自动回退到 Edge/Chrome 应用窗口；详细原因写入 `logs\app.log`。
 
+原生窗口本身在子进程里运行：WebView2 初始化失败、pythonnet 崩溃（`0xe0434352`）或子进程弹出错误对话框，都只影响子进程；主进程等待“页面加载完成”信号，最多 30 秒，超时先结束子进程再回退，因此不会出现“双击后没有任何窗口”的静默退出。
+
 ## 数据与日志
 
 | 路径 | 内容 |
@@ -93,6 +95,7 @@ python launcher.py --smoke-test --result-file smoke.json
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | 运行日志 |
 | `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 本机配置 |
 | `%LOCALAPPDATA%\NetworkLocator\webview-state.json` | 上次原生窗口启动结果，用于自动重建缓存 |
+| `%LOCALAPPDATA%\NetworkLocator\native-window.json` | 原生窗口子进程的启动状态（主进程据此判断加载/回退） |
 
 删除 `network-locator.exe` 和 `%LOCALAPPDATA%\NetworkLocator` 即可完成卸载。应用不写注册表启动项、系统服务或计划任务。
 
