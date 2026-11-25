@@ -33,13 +33,12 @@ from network_locator.win_network import discover_networks
 CONFIG_FILENAME = "config.json"
 ICON_FILENAME = "network-locator.ico"
 NATIVE_WINDOW_TITLE = f"{APP_NAME} / Network Locator"
-NATIVE_WINDOW_TIMEOUT = 20.0
+NATIVE_WINDOW_TIMEOUT = 30.0
 NATIVE_WINDOW_STATE_FILENAME = "webview-state.json"
 WEBVIEW_PROFILE_BACKUP_LIMIT = 3
 WEBVIEW2_CLIENT_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 APP_USER_MODEL_ID = "642671.NetworkLocator.Windows"
 GUI_MODES = {"auto", "native", "app-window", "browser"}
-HARD_EXIT = False
 
 
 def app_data_dir() -> Path:
@@ -245,6 +244,22 @@ def backup_webview_profile(profile: Path | None = None) -> Path | None:
     return None
 
 
+def ensure_webview_profile() -> bool:
+    path = webview_profile_dir()
+    try:
+        if path.exists() and not path.is_dir():
+            logging.warning("webview profile path is not a directory: %s", path)
+            backup_webview_profile()
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        logging.exception("webview profile is not writable: %s", path)
+        return False
+
+
 def native_window_outcome(
     loaded: bool,
     closed: bool,
@@ -262,10 +277,12 @@ def native_window_outcome(
     return False, "原生窗口已打开但页面未能加载"
 
 
-def run_native_window(url: str) -> tuple[bool, str]:
+def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
     runtime = webview2_runtime_version()
     if not runtime:
         return False, "未检测到 Microsoft Edge WebView2 运行时"
+    if not ensure_webview_profile():
+        return False, "WebView2 缓存目录不可写"
     try:
         import webview
     except Exception as exc:
@@ -279,6 +296,16 @@ def run_native_window(url: str) -> tuple[bool, str]:
     closed = threading.Event()
     finished = threading.Event()
     timed_out = threading.Event()
+
+    def mark_loaded() -> None:
+        loaded.set()
+        write_native_state(status="loaded", webview2=runtime, url=url)
+        if on_loaded is not None:
+            try:
+                on_loaded()
+            except Exception:
+                logging.exception("native window loaded callback failed")
+
     try:
         window = webview.create_window(
             title=NATIVE_WINDOW_TITLE,
@@ -291,7 +318,7 @@ def run_native_window(url: str) -> tuple[bool, str]:
             text_select=False,
         )
         window.events.shown += shown.set
-        window.events.loaded += loaded.set
+        window.events.loaded += mark_loaded
         window.events.closed += closed.set
     except Exception as exc:
         logging.exception("native window creation failed")
@@ -357,6 +384,130 @@ def run_native_window(url: str) -> tuple[bool, str]:
     logging.error("native window failed: %s", reason)
     write_native_state(status="failed", reason=reason, webview2=runtime)
     return False, reason
+
+
+def native_window_result_file() -> Path:
+    return app_data_dir() / "native-window.json"
+
+
+def read_json_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def terminate_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        else:
+            process.kill()
+    except Exception:
+        logging.exception("failed to terminate process %s", process.pid)
+    try:
+        process.wait(timeout=5)
+    except Exception:
+        logging.debug("process %s did not exit promptly", process.pid, exc_info=True)
+
+
+def run_native_window_mode(url: str, result_file: str) -> int:
+    result_path = Path(result_file).resolve()
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def report(**fields) -> None:
+        payload = {"pid": os.getpid()}
+        payload.update(fields)
+        try:
+            result_path.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            logging.exception("failed to write native window result")
+
+    report(status="starting", url=url)
+    ok, reason = run_native_window(url, on_loaded=lambda: report(status="loaded"))
+    report(status="ok" if ok else "failed", reason=reason)
+    return 0 if ok else 1
+
+
+def run_native_window_isolated(url: str) -> tuple[bool, str]:
+    if not webview2_runtime_version():
+        return False, "未检测到 Microsoft Edge WebView2 运行时"
+    result_file = native_window_result_file()
+    try:
+        result_file.unlink()
+    except OSError:
+        pass
+    command = [
+        sys.executable,
+    ]
+    if not getattr(sys, "frozen", False):
+        command.append(str(Path(__file__).resolve()))
+    command += [
+        "--native-window",
+        "--url",
+        url,
+        "--result-file",
+        str(result_file),
+    ]
+    logging.info("native window process starting: %s", command)
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError as exc:
+        logging.exception("failed to launch the native window process")
+        return False, f"无法启动原生窗口进程（{exc}）"
+
+    startup_deadline = time.monotonic() + NATIVE_WINDOW_TIMEOUT
+    loaded = False
+    reason = ""
+    try:
+        while True:
+            status = str(read_json_file(result_file).get("status") or "")
+            if status in {"loaded", "ok"}:
+                loaded = True
+                break
+            if status == "failed":
+                reason = str(read_json_file(result_file).get("reason") or "")
+                break
+            if process.poll() is not None:
+                reason = f"原生窗口进程意外退出（code={process.returncode}）"
+                break
+            if time.monotonic() > startup_deadline:
+                reason = f"原生窗口在 {NATIVE_WINDOW_TIMEOUT:.0f} 秒内未能完成加载"
+                logging.error("%s", reason)
+                return False, reason
+            time.sleep(0.25)
+
+        if loaded:
+            logging.info("native window loaded; waiting for it to close")
+            try:
+                process.wait()
+            except Exception:
+                logging.debug("failed while waiting for native window", exc_info=True)
+            logging.info("native window closed; exit_code=%s", process.returncode)
+            return True, ""
+
+        if not reason:
+            reason = "原生窗口未能打开"
+        logging.error("native window process failed: %s", reason)
+        return False, reason
+    finally:
+        terminate_process(process)
 
 
 def launch_app_window(
@@ -545,8 +696,6 @@ def gui_mode() -> str:
 
 
 def run_application(port: int) -> int:
-    global HARD_EXIT
-    HARD_EXIT = True
     config = load_config()
     mode = gui_mode()
     try:
@@ -572,14 +721,14 @@ def run_application(port: int) -> int:
                     previous.get("status"),
                 )
                 backup_webview_profile()
-            ok, reason = run_native_window(url)
+            ok, reason = run_native_window_isolated(url)
             if ok:
                 return 0
             native_reason = reason
             logging.warning("native window unavailable: %s", reason)
             if mode == "native":
                 if backup_webview_profile():
-                    ok, reason = run_native_window(url)
+                    ok, reason = run_native_window_isolated(url)
                     if ok:
                         return 0
                     native_reason = reason
@@ -632,6 +781,8 @@ def main() -> int:
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--result-file")
     parser.add_argument("--serve-only", action="store_true")
+    parser.add_argument("--native-window", action="store_true")
+    parser.add_argument("--url")
     parser.add_argument("--ready-file")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--duration", type=float, default=0)
@@ -661,6 +812,11 @@ def main() -> int:
             return 2
         port = 0 if args.port is None else args.port
         return run_server_only(port, args.ready_file, args.duration)
+    if args.native_window:
+        if not args.url or not args.result_file:
+            show_error("--native-window requires --url and --result-file")
+            return 2
+        return run_native_window_mode(args.url, args.result_file)
 
     configured = load_config()
     port = args.port
@@ -679,6 +835,5 @@ if __name__ == "__main__":
     exit_code = main()
     sys.stdout.flush()
     sys.stderr.flush()
-    if HARD_EXIT:
-        os._exit(exit_code)
-    raise SystemExit(exit_code)
+    logging.shutdown()
+    os._exit(exit_code)
