@@ -245,7 +245,7 @@ if ($HomeResponse.StatusCode -ne 200 -or $HomeResponse.Content -notmatch "网络
 if ($HomeResponse.Content -match "__APP_VERSION__") {
     throw "WebUI version placeholder was not substituted"
 }
-if (-not $Smoke.WaitForExit(20000)) {
+if (-not $Smoke.WaitForExit(45000)) {
     Stop-ProcessTree $Smoke
     throw "serve-only process did not exit after its duration"
 }

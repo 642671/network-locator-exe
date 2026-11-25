@@ -497,7 +497,7 @@ def run_smoke_test(result_file: str) -> int:
 
 
 def run_server_only(port: int, ready_file: str, duration: float) -> int:
-    server, thread, url = start_server(port)
+    server, thread, url = start_server(port, auto_schedule=False)
     ready_path = Path(ready_file).resolve()
     ready_path.parent.mkdir(parents=True, exist_ok=True)
     ready_path.write_text(
