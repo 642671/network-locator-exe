@@ -274,6 +274,17 @@ node --check src\frontend\csv.js
 - `/api/v2/bootstrap`：扫描状态 `idle`，返回 2 个网段
 - `/api/v2/analysis`：返回 4 个网络接口
 
+### 6.6 Windows EXE 构建与发布
+
+2026-11-25 执行完整构建并发布：
+
+- `build.ps1`：通过，包含 51 项后端测试、35 项前端测试、Python/JavaScript 语法检查、PyInstaller 打包、EXE 自检和 HTTP 冒烟测试
+- 本地产物：`release\network-locator.exe`，SHA256 `ab8812bd60798ffe1cd2597413161890885d3d59ba2fe61bcb75e02630f39cae`
+- EXE 自检：`status=ok`，版本 `2.0.0`，WebView2 `158.0.4370.33`
+- GitHub Actions `Build Windows EXE`：成功，运行 ID `45524694922`
+- GitHub Release `v2.0.0`：已发布 EXE、SHA256 和自检报告；远程 EXE SHA256 `e8e1acbc253dc6f8438c2bb83835a7c90a630c1f7023ecb7de35136af4e94cf1`，与远程 `.sha256` 文件一致
+- 本地与云端分别使用 Python 3.14.6 和 3.13 构建，因此 EXE 哈希不同，但均通过自检
+
 ## 7. 已知问题与限制
 
 1. Windows 不能像 Linux 一样把 ICMP 探测严格绑定到指定网卡；多网卡同网段时最终路径仍由系统路由表决定。
@@ -283,7 +294,7 @@ node --check src\frontend\csv.js
 5. 自动扫描依赖应用进程常驻；应用关闭后不会创建计划任务或后台服务。
 6. 单网段安全上限为 1022 台主机；单个自定义范围最多 1022 台，总计最多 4096 台。
 7. 旧 V1 常用 MAC/别名不会自动转换为 V2 设备档案，避免把过期缓存当成真实设备。
-8. 本机测试环境缺少 `pywebview`、`PyInstaller` 和 `Pillow`，本次未重新生成 EXE；构建命令与校验流程已更新，需在安装构建依赖后执行。
+8. EXE 未做代码签名，首次从网络下载运行时 Windows SmartScreen 可能提示未知发布者。
 9. 实机扫描的历史统计可能包含旧版本已经写入的广播记录计数；Schema 2 会清除无效设备档案，但不会重写历史任务的汇总数字。
 
 ## 8. 启动与打包
