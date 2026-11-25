@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import http.client
 import importlib.util
 import json
 import logging
 import multiprocessing
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -31,7 +33,9 @@ from network_locator.win_network import discover_networks
 CONFIG_FILENAME = "config.json"
 ICON_FILENAME = "network-locator.ico"
 NATIVE_WINDOW_TITLE = f"{APP_NAME} / Network Locator"
-NATIVE_WINDOW_TIMEOUT = 15.0
+NATIVE_WINDOW_TIMEOUT = 20.0
+NATIVE_WINDOW_STATE_FILENAME = "webview-state.json"
+WEBVIEW_PROFILE_BACKUP_LIMIT = 3
 WEBVIEW2_CLIENT_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 APP_USER_MODEL_ID = "642671.NetworkLocator.Windows"
 GUI_MODES = {"auto", "native", "app-window", "browser"}
@@ -173,6 +177,90 @@ def browser_profile_dir() -> Path:
     return path
 
 
+def webview_profile_dir() -> Path:
+    return app_data_dir() / "webview"
+
+
+def webview_state_path() -> Path:
+    return app_data_dir() / NATIVE_WINDOW_STATE_FILENAME
+
+
+def read_native_state() -> dict:
+    try:
+        value = json.loads(webview_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def write_native_state(**fields) -> None:
+    payload = {"updated": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    payload.update(fields)
+    try:
+        webview_state_path().write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        logging.debug("failed to write native window state", exc_info=True)
+
+
+def prune_webview_backups(root: Path) -> None:
+    backups = sorted(root.glob("webview.bak-*"), reverse=True)
+    for old in backups[WEBVIEW_PROFILE_BACKUP_LIMIT:]:
+        try:
+            if old.is_dir():
+                shutil.rmtree(old)
+            else:
+                old.unlink()
+        except OSError:
+            logging.debug("failed to prune %s", old, exc_info=True)
+
+
+def backup_webview_profile(profile: Path | None = None) -> Path | None:
+    source = webview_profile_dir() if profile is None else profile
+    if not source.exists():
+        return None
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    target = source.with_name(f"webview.bak-{stamp}")
+    suffix = 1
+    while target.exists():
+        target = source.with_name(f"webview.bak-{stamp}-{suffix}")
+        suffix += 1
+    last_error: OSError | None = None
+    for delay in (0.0, 0.5, 1.0, 2.0, 3.0):
+        if delay:
+            time.sleep(delay)
+        try:
+            source.rename(target)
+        except OSError as exc:
+            last_error = exc
+            continue
+        logging.warning("webview profile moved to %s", target)
+        prune_webview_backups(target.parent)
+        return target
+    if last_error is not None:
+        logging.error("failed to move webview profile %s: %s", source, last_error)
+    return None
+
+
+def native_window_outcome(
+    loaded: bool,
+    closed: bool,
+    timed_out: bool,
+) -> tuple[bool, str]:
+    if loaded:
+        return True, ""
+    if timed_out:
+        return (
+            False,
+            f"原生窗口在 {NATIVE_WINDOW_TIMEOUT:.0f} 秒内未能完成加载",
+        )
+    if closed:
+        return False, "原生窗口在页面加载完成前被关闭"
+    return False, "原生窗口已打开但页面未能加载"
+
+
 def run_native_window(url: str) -> tuple[bool, str]:
     runtime = webview2_runtime_version()
     if not runtime:
@@ -183,12 +271,13 @@ def run_native_window(url: str) -> tuple[bool, str]:
         logging.exception("pywebview is unavailable")
         return False, f"pywebview 不可用（{exc}）"
 
-    storage_path = app_data_dir() / "webview"
+    storage_path = webview_profile_dir()
     icon = app_icon_path()
     shown = threading.Event()
     loaded = threading.Event()
     closed = threading.Event()
     finished = threading.Event()
+    timed_out = threading.Event()
     try:
         window = webview.create_window(
             title=NATIVE_WINDOW_TITLE,
@@ -214,6 +303,7 @@ def run_native_window(url: str) -> tuple[bool, str]:
                 return
         if finished.is_set() or loaded.is_set():
             return
+        timed_out.set()
         logging.error(
             "native window did not finish loading within %.0f seconds",
             NATIVE_WINDOW_TIMEOUT,
@@ -231,6 +321,7 @@ def run_native_window(url: str) -> tuple[bool, str]:
 
     started = time.monotonic()
     logging.info("native window starting webview2=%s url=%s", runtime, url)
+    write_native_state(status="starting", webview2=runtime, url=url)
     try:
         webview.start(
             gui="edgechromium",
@@ -240,21 +331,31 @@ def run_native_window(url: str) -> tuple[bool, str]:
         )
     except Exception as exc:
         logging.exception("native window failed")
+        write_native_state(status="failed", reason=str(exc), webview2=runtime)
         return False, f"WebView2 窗口启动失败（{exc}）"
     finally:
         finished.set()
 
     elapsed = time.monotonic() - started
-    if loaded.is_set() or closed.is_set():
-        logging.info(
-            "native window closed after %.1fs loaded=%s shown=%s",
-            elapsed,
-            loaded.is_set(),
-            shown.is_set(),
-        )
+    ok, reason = native_window_outcome(
+        loaded.is_set(),
+        closed.is_set(),
+        timed_out.is_set(),
+    )
+    logging.info(
+        "native window finished after %.1fs loaded=%s shown=%s closed=%s timed_out=%s",
+        elapsed,
+        loaded.is_set(),
+        shown.is_set(),
+        closed.is_set(),
+        timed_out.is_set(),
+    )
+    if ok:
+        write_native_state(status="loaded", webview2=runtime)
         return True, ""
-    logging.error("native window closed before the page finished loading")
-    return False, "原生窗口已打开但页面未能加载"
+    logging.error("native window failed: %s", reason)
+    write_native_state(status="failed", reason=reason, webview2=runtime)
+    return False, reason
 
 
 def launch_app_window(
@@ -346,6 +447,54 @@ def run_selftest(result_file: str) -> int:
     return exit_code
 
 
+def http_get(port: int, path: str) -> tuple[int, bytes]:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        connection.request("GET", path)
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def run_smoke_test(result_file: str) -> int:
+    result = {"app": APP_ID, "version": __version__, "status": "error"}
+    server = None
+    thread = None
+    try:
+        server, thread, _url = start_server(0)
+        port = server.server_address[1]
+        result["port"] = port
+        index_status, index_body = http_get(port, "/")
+        result["index_status"] = index_status
+        result["index_bytes"] = len(index_body)
+        result["index_ok"] = (
+            index_status == 200
+            and "网络定位".encode("utf-8") in index_body
+            and b"__APP_VERSION__" not in index_body
+        )
+        api_status, api_body = http_get(port, "/api/networks")
+        result["api_status"] = api_status
+        result["api_ok"] = api_status == 200 and b'"ok": true' in api_body
+        if result["index_ok"] and result["api_ok"]:
+            result["status"] = "ok"
+        else:
+            result["error"] = "WebUI or API smoke check failed"
+    except Exception as exc:
+        result["error"] = str(exc)
+        logging.exception("smoke test failed")
+    finally:
+        if server is not None:
+            shutdown_server(server, thread)
+    result_path = Path(result_file).resolve()
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return 0 if result["status"] == "ok" else 1
+
+
 def run_server_only(port: int, ready_file: str, duration: float) -> int:
     server, thread, url = start_server(port)
     ready_path = Path(ready_file).resolve()
@@ -411,14 +560,27 @@ def run_application(port: int) -> int:
     try:
         logging.info("serving url=%s gui_mode=%s", url, mode)
         if mode in {"auto", "native"}:
+            previous = read_native_state()
+            if previous.get("status") in {"starting", "failed"}:
+                logging.warning(
+                    "previous native window did not load (status=%s); resetting WebView2 profile",
+                    previous.get("status"),
+                )
+                backup_webview_profile()
             ok, reason = run_native_window(url)
             if ok:
                 return 0
             native_reason = reason
             logging.warning("native window unavailable: %s", reason)
             if mode == "native":
-                show_error(f"无法启动原生窗口：{reason}")
+                if backup_webview_profile():
+                    ok, reason = run_native_window(url)
+                    if ok:
+                        return 0
+                    native_reason = reason
+                show_error(f"无法启动原生窗口：{native_reason}")
                 return 3
+            backup_webview_profile()
 
         if mode in {"auto", "app-window"}:
             browser = find_browser(
@@ -428,7 +590,10 @@ def run_application(port: int) -> int:
             if browser:
                 browser_process = launch_app_window(url, browser)
                 if native_reason:
-                    notify_fallback(f"{native_reason}，已改用浏览器应用窗口打开。")
+                    notify_fallback(
+                        f"{native_reason}，已改用浏览器应用窗口打开。"
+                        "下次启动会自动重建 WebView2 缓存。"
+                    )
                 wait_for_browser(browser_process)
                 return 0
             logging.warning("no Edge/Chrome found; falling back to default browser")
@@ -459,6 +624,7 @@ def run_application(port: int) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--result-file")
     parser.add_argument("--serve-only", action="store_true")
     parser.add_argument("--ready-file")
@@ -479,6 +645,11 @@ def main() -> int:
             show_error("--selftest requires --result-file")
             return 2
         return run_selftest(args.result_file)
+    if args.smoke_test:
+        if not args.result_file:
+            show_error("--smoke-test requires --result-file")
+            return 2
+        return run_smoke_test(args.result_file)
     if args.serve_only:
         if not args.ready_file:
             show_error("--serve-only requires --ready-file")
@@ -500,4 +671,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    raise SystemExit(main())
+    exit_code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)

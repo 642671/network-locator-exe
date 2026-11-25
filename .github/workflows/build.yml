@@ -43,6 +43,7 @@ jobs:
             release/network-locator.exe
             release/network-locator.exe.sha256
             release/selftest.json
+            release/smoke.json
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -55,5 +56,6 @@ jobs:
             release/network-locator.exe `
             release/network-locator.exe.sha256 `
             release/selftest.json `
+            release/smoke.json `
             --generate-notes `
             --title "Network Locator ${{ github.ref_name }}"

@@ -67,6 +67,12 @@ python launcher.py
 python launcher.py --serve-only --ready-file ready.json --port 0 --duration 10
 ```
 
+启动冒烟测试（启动本地服务、校验首页和 `/api/networks` 返回 HTTP 200，然后干净退出）：
+
+```powershell
+python launcher.py --smoke-test --result-file smoke.json
+```
+
 环境变量：
 
 | 变量 | 用途 |
@@ -76,6 +82,8 @@ python launcher.py --serve-only --ready-file ready.json --port 0 --duration 10
 | `NETWORK_LOCATOR_GUI` | `auto` / `native` / `app-window` / `browser` |
 | `NETWORK_LOCATOR_BROWSER` | 指定回退浏览器路径 |
 
+如果 WebView2 原生窗口无法初始化，启动器会重建 `%LOCALAPPDATA%\NetworkLocator\webview` 缓存，并在本次运行自动回退到 Edge/Chrome 应用窗口；详细原因写入 `logs\app.log`。
+
 ## 数据与日志
 
 | 路径 | 内容 |
@@ -84,6 +92,7 @@ python launcher.py --serve-only --ready-file ready.json --port 0 --duration 10
 | `%LOCALAPPDATA%\NetworkLocator\config.json` | 本地端口与回退浏览器 |
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | 运行日志 |
 | `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 本机配置 |
+| `%LOCALAPPDATA%\NetworkLocator\webview-state.json` | 上次原生窗口启动结果，用于自动重建缓存 |
 
 删除 `network-locator.exe` 和 `%LOCALAPPDATA%\NetworkLocator` 即可完成卸载。应用不写注册表启动项、系统服务或计划任务。
 
@@ -123,8 +132,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 3. 前端 JavaScript 语法检查和 Node 测试
 4. PyInstaller 单文件打包
 5. EXE 自检（网卡发现、V2 WebUI 资源、pywebview、图标）
-6. `--serve-only` 冒烟测试（健康检查、首页、版本占位符）
-7. 输出 `release\network-locator.exe` 和 SHA256
+6. `--smoke-test` 启动冒烟测试（本地服务、首页、`/api/networks` 均返回 HTTP 200）
+7. `--serve-only` 进程级冒烟测试（健康检查、首页、版本占位符、干净退出）
+8. 输出 `release\network-locator.exe`、`release\smoke.json` 和 SHA256
 
 ## 已知限制
 

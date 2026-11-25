@@ -139,6 +139,23 @@ if (-not $SelfTest.icon) {
     throw "EXE self-test did not find the bundled application icon"
 }
 
+$SmokeTestResult = Join-Path $ReleaseDir "smoke.json"
+$SmokeTestProcess = Start-Process `
+    -FilePath $ExePath `
+    -ArgumentList @("--smoke-test", "--result-file", "`"$SmokeTestResult`"") `
+    -Wait `
+    -PassThru
+if ($SmokeTestProcess.ExitCode -ne 0) {
+    throw "EXE startup smoke test failed with exit code $($SmokeTestProcess.ExitCode)"
+}
+$SmokeTest = Get-Content -LiteralPath $SmokeTestResult -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($SmokeTest.status -ne "ok") {
+    throw "EXE startup smoke test returned status $($SmokeTest.status)"
+}
+if ($SmokeTest.index_status -ne 200 -or $SmokeTest.api_status -ne 200) {
+    throw "EXE startup smoke test did not receive HTTP 200"
+}
+
 $ReadyFile = Join-Path $ReleaseDir "ready.json"
 $Smoke = Start-Process `
     -FilePath $ExePath `
