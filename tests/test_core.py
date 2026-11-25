@@ -20,6 +20,7 @@ from network_locator.core import (
     match_neighbor_records_multi,
     network_target_key,
     network_target_payload,
+    normalize_device_mac,
     normalize_mac,
     normalize_mac_suffix,
     normalize_mac_suffixes,
@@ -51,11 +52,21 @@ def make_target(**overrides) -> NetworkTarget:
 
 class NormalizationTests(unittest.TestCase):
     def test_version_is_reported(self) -> None:
-        self.assertEqual(__version__, "1.1.0")
+        self.assertEqual(__version__, "2.0.0")
 
     def test_mac_forms_normalize_to_dashes(self) -> None:
         self.assertEqual(normalize_mac("02:42:ac:11:00:05"), "02-42-AC-11-00-05")
         self.assertIsNone(normalize_mac("not-a-mac"))
+
+    def test_device_mac_rejects_broadcast_multicast_and_zero(self) -> None:
+        self.assertEqual(
+            normalize_device_mac("02:42:ac:11:00:05"),
+            "02-42-AC-11-00-05",
+        )
+        self.assertIsNone(normalize_device_mac("FF-FF-FF-FF-FF-FF"))
+        self.assertIsNone(normalize_device_mac("00-00-00-00-00-00"))
+        self.assertIsNone(normalize_device_mac("01-00-5E-00-00-01"))
+        self.assertIsNone(normalize_device_mac("33-33-00-00-00-01"))
 
     def test_suffix_forms(self) -> None:
         self.assertEqual(normalize_mac_suffix("aa-bb"), "AABB")
@@ -164,6 +175,8 @@ class ArpParsingTests(unittest.TestCase):
             "  192.0.2.10            02-42-ac-11-00-10     动态\r\n"
             "  192.0.2.11            02-42-ac-22-00-11     静态\r\n"
             "  192.0.2.255           ff-ff-ff-ff-ff-ff     静态\r\n"
+            "  192.0.2.12            01-00-5e-00-00-01     静态\r\n"
+            "  192.0.2.13            00-00-00-00-00-00     静态\r\n"
         )
         records = parse_arp_output(raw, make_target())
         by_ip = {record.ip: record for record in records}
@@ -171,6 +184,9 @@ class ArpParsingTests(unittest.TestCase):
         self.assertEqual(by_ip["192.0.2.10"].state, "STALE")
         self.assertEqual(by_ip["192.0.2.11"].state, "REACHABLE")
         self.assertEqual(by_ip["192.0.2.1"].interface, "Ethernet")
+        self.assertNotIn("192.0.2.255", by_ip)
+        self.assertNotIn("192.0.2.12", by_ip)
+        self.assertNotIn("192.0.2.13", by_ip)
 
 
 class MatchingTests(unittest.TestCase):

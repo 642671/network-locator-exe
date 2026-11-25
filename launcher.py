@@ -193,11 +193,11 @@ def run_native_window(url: str) -> tuple[bool, str]:
         window = webview.create_window(
             title=NATIVE_WINDOW_TITLE,
             url=url,
-            width=1120,
-            height=720,
+            width=1280,
+            height=820,
             resizable=True,
-            min_size=(900, 600),
-            background_color="#f4f7fb",
+            min_size=(720, 520),
+            background_color="#f5f7fa",
             text_select=False,
         )
         window.events.shown += shown.set
@@ -303,9 +303,10 @@ def run_selftest(result_file: str) -> int:
     frontend = {
         "dir": str(FRONTEND_DIR),
         "index_html": (FRONTEND_DIR / "index.html").is_file(),
-        "app_js": (FRONTEND_DIR / "app.js").is_file(),
-        "styles_css": (FRONTEND_DIR / "styles.css").is_file(),
-        "csv_js": (FRONTEND_DIR / "csv.js").is_file(),
+        "styles_v2_css": (FRONTEND_DIR / "styles-v2.css").is_file(),
+        "v2_utils_js": (FRONTEND_DIR / "v2-utils.js").is_file(),
+        "v2_api_js": (FRONTEND_DIR / "v2-api.js").is_file(),
+        "v2_app_js": (FRONTEND_DIR / "v2-app.js").is_file(),
     }
     result: dict = {
         "app": APP_ID,

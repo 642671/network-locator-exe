@@ -33,7 +33,10 @@ if (-not $SkipTests) {
         launcher.py `
         src\network_locator\__init__.py `
         src\network_locator\core.py `
+        src\network_locator\oui.py `
+        src\network_locator\scanner.py `
         src\network_locator\server.py `
+        src\network_locator\store.py `
         src\network_locator\win_network.py
     if ($LASTEXITCODE -ne 0) {
         throw "Python compilation failed"
@@ -47,7 +50,13 @@ if (-not $SkipTests) {
         if ($LASTEXITCODE -ne 0) {
             throw "app.js syntax check failed"
         }
-        & node --test tests\frontend_csv.test.js tests\frontend_search_state.test.js tests\frontend_saved_macs.test.js
+        foreach ($script in @("v2-utils.js", "v2-api.js", "v2-app.js")) {
+            & node --check (Join-Path $Root "src\frontend\$script")
+            if ($LASTEXITCODE -ne 0) {
+                throw "$script syntax check failed"
+            }
+        }
+        & node --test tests\frontend_csv.test.js tests\frontend_search_state.test.js tests\frontend_saved_macs.test.js tests\frontend_v2_utils.test.js
         if ($LASTEXITCODE -ne 0) {
             throw "Frontend tests failed"
         }
@@ -118,7 +127,7 @@ $SelfTest = Get-Content -LiteralPath $SelfTestResult -Raw -Encoding UTF8 | Conve
 if ($SelfTest.status -ne "ok") {
     throw "EXE self-test returned status $($SelfTest.status)"
 }
-foreach ($key in @("index_html", "app_js", "styles_css", "csv_js")) {
+foreach ($key in @("index_html", "styles_v2_css", "v2_utils_js", "v2_api_js", "v2_app_js")) {
     if (-not $SelfTest.frontend.$key) {
         throw "EXE self-test is missing bundled WebUI file: $key"
     }

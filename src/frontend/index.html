@@ -1,523 +1,193 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>网络定位</title>
+  <title>网络定位 · Network Locator</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=__APP_VERSION__">
   <script>
     (function () {
       var theme = "light";
       try {
-        theme = window.parent.localStorage.getItem("themeMode") || "";
+        theme = window.localStorage.getItem("networkLocator.theme.v2") || "light";
       } catch (error) {
-        theme = "";
+        theme = "light";
       }
-      if (theme !== "light" && theme !== "dark") {
-        theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light";
-      }
-      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
     }());
   </script>
-  <link rel="stylesheet" href="./styles.css?v=__APP_VERSION__">
+  <link rel="stylesheet" href="./styles-v2.css?v=__APP_VERSION__">
 </head>
 <body>
-  <div class="resize-safety-corner" aria-hidden="true"></div>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.5"></circle><path d="m12 12 6.4-6.4"></path><path d="M12 3a9 9 0 0 1 9 9"></path></symbol>
+    <symbol id="i-inventory" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"></rect><rect x="3" y="14" width="18" height="6" rx="2"></rect><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"></path></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2.5-7 5 14 2.5-7H21"></path></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 4v5h5"></path><path d="M5.5 18.5A8 8 0 1 1 4 9"></path><path d="M12 7v5l3 2"></path></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.38.36.72.65 1 .3.28.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"></path></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5"></path><path d="M4 17v-5h5"></path><path d="M6.1 8A7 7 0 0 1 18.7 6L20 7M4 17l1.3 1A7 7 0 0 0 17.9 16"></path></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"></path></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"></path></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"></path></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"></path></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6 18 18M18 6 6 18"></path></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10Z"></path><path d="m13.5 7.5 3 3"></path></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6"></path><path d="M12 17h.01"></path></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9a14 14 0 0 1 18 0"></path><path d="M6 12a9.5 9.5 0 0 1 12 0"></path><path d="M9 15a5 5 0 0 1 6 0"></path><path d="M12 19h.01"></path></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="2.5"></circle></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.5 8.3-8 10-4.5-1.7-8-5-8-10V6Z"></path><path d="m9 12 2 2 4-4"></path></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"></ellipse><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path><path d="M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"></path></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"></path></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h6M14 6h6M4 12h10M18 12h2M4 18h3M11 18h9"></path><circle cx="12" cy="6" r="2"></circle><circle cx="16" cy="12" r="2"></circle><circle cx="9" cy="18" r="2"></circle></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="5" rx="1"></rect><rect x="3" y="16" width="6" height="5" rx="1"></rect><rect x="15" y="16" width="6" height="5" rx="1"></rect><path d="M12 8v4M6 16v-4h12v4"></path></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"></path></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"></path></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7Z"></path></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"></path><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"></path></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"></path></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.7 2.7 0 0 1 5.2 1c0 2-2.7 2.2-2.7 4M12 17h.01"></path></symbol>
+  </svg>
 
-  <header class="window-titlebar">
-    <div class="window-brand">
-      <img class="brand-icon" src="./favicon.svg?v=__APP_VERSION__" alt="" aria-hidden="true">
-      <span>网络定位</span>
-    </div>
-    <div class="titlebar-actions">
-      <div id="backendBadge" class="backend-badge is-checking" role="status" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="backendBadgeText">正在连接服务</span>
+  <div class="app-frame">
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark"><svg class="icon"><use href="#i-radar"></use></svg></div>
+        <div class="brand-copy"><strong>网络定位</strong><span>Network Locator · LAN Manager</span></div>
       </div>
-    </div>
-  </header>
-
-  <div class="app-shell">
-    <aside class="sidebar" aria-label="MAC 查询控制">
-      <section class="control-section scan-control">
-        <div class="section-heading">
-          <span class="section-kicker">目标设备</span>
-          <div class="section-title-row">
-            <h1>MAC 后缀定位</h1>
-            <button id="addSuffixButton" class="add-suffix-button" type="button">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M12 5v14"></path>
-                <path d="M5 12h14"></path>
-              </svg>
-              <span>添加一个 MAC</span>
-            </button>
-          </div>
-          <p>在当前电脑所在的物理局域网中查找匹配设备。</p>
-        </div>
-
-        <form id="scanForm" class="scan-form" autocomplete="off" novalidate>
-          <div class="field-label-row">
-            <label class="field-label" for="macSuffix">MAC 后四位</label>
-          </div>
-          <div id="suffixInputList" class="suffix-input-list">
-            <div class="suffix-input-row" data-suffix-row>
-              <div id="inputShell" class="input-shell">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                  <path d="M7 9h2"></path>
-                  <path d="M11 9h2"></path>
-                  <path d="M15 9h2"></path>
-                  <path d="M7 13h2"></path>
-                  <path d="M11 13h2"></path>
-                  <path d="M15 13h2"></path>
-                </svg>
-                <input
-                  id="macSuffix"
-                  name="macSuffix"
-                  type="text"
-                  placeholder="AA-BB / AA:BB / AABB"
-                  spellcheck="false"
-                  autocomplete="off"
-                  autocapitalize="none"
-                  aria-invalid="false"
-                  aria-describedby="inputError"
-                  data-suffix-input>
-                <button
-                  id="inputClearButton"
-                  class="input-clear-button"
-                  type="button"
-                  aria-label="清除搜索"
-                  data-tooltip="清除搜索并恢复设备总表"
-                  hidden>
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M6 6 18 18"></path>
-                    <path d="M18 6 6 18"></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="suffix-input-actions">
-            <span id="suffixLimitHint" class="field-hint">最多同时搜索 8 个</span>
-          </div>
-          <p id="inputError" class="field-error" role="alert" hidden></p>
-
-          <div class="scan-actions">
-            <button id="scanButton" class="primary-button" type="submit" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="2.5"></circle>
-                <path d="M7.8 7.8a6 6 0 0 0 0 8.4"></path>
-                <path d="M16.2 7.8a6 6 0 0 1 0 8.4"></path>
-                <path d="M4.9 4.9a10 10 0 0 0 0 14.2"></path>
-                <path d="M19.1 4.9a10 10 0 0 1 0 14.2"></path>
-              </svg>
-              <span id="scanButtonText">开始扫描</span>
-            </button>
-            <button
-              id="stopButton"
-              class="secondary-button stop-button"
-              type="button"
-              disabled
-              data-tooltip="停止当前扫描或持续搜索">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-              </svg>
-              <span>停止</span>
-            </button>
-          </div>
-        </form>
-
-        <div class="scan-progress" id="scanProgress" hidden>
-          <div class="progress-copy">
-            <span id="progressLabel">正在扫描</span>
-            <strong id="progressValue">0%</strong>
-          </div>
-          <div
-            id="progressTrack"
-            class="progress-track"
-            role="progressbar"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-valuenow="0">
-            <div id="progressBar" class="progress-bar"></div>
-          </div>
-        </div>
-
-        <div id="scanState" class="scan-state is-idle" role="status" aria-live="polite">
-          <span class="state-indicator" aria-hidden="true"></span>
-          <div>
-            <strong id="scanStateTitle">准备就绪</strong>
-            <p id="scanStateMessage">正在读取网络环境。</p>
-          </div>
-        </div>
-      </section>
-
-      <div
-        id="networkResizer"
-        class="panel-resizer horizontal-resizer"
-        role="separator"
-        tabindex="0"
-        aria-label="调整 MAC 后缀定位与活动网段的高度"
-        aria-orientation="horizontal"
-        aria-valuemin="280"
-        aria-valuemax="520"
-        aria-valuenow="430"
-        data-tooltip="拖动调整上下区域，双击恢复默认高度">
-        <span class="resizer-grip" aria-hidden="true"></span>
+      <nav class="nav">
+        <div class="nav-label">工作区</div>
+        <button class="nav-item is-active" type="button" data-action="navigate" data-view="dashboard"><svg class="icon"><use href="#i-dashboard"></use></svg><span>设备总览</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-view="discovery"><svg class="icon"><use href="#i-radar"></use></svg><span>网络扫描</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-view="inventory"><svg class="icon"><use href="#i-inventory"></use></svg><span>设备管理</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-view="lookup"><svg class="icon"><use href="#i-search"></use></svg><span>MAC 定位</span></button>
+        <div class="nav-label nav-label-spaced">分析</div>
+        <button class="nav-item" type="button" data-action="navigate" data-view="analysis"><svg class="icon"><use href="#i-activity"></use></svg><span>网络分析</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-view="history"><svg class="icon"><use href="#i-history"></use></svg><span>扫描历史</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-view="settings"><svg class="icon"><use href="#i-settings"></use></svg><span>系统设置</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="connection-card" id="backendStatus"><span class="connection-dot is-waiting" aria-hidden="true"></span><div><strong id="backendStatusText">正在连接</strong><span>本地服务</span></div></div>
+        <div class="version-line"><span id="sidebarVersion">v2.0.0</span><span>V2.0 Professional</span></div>
       </div>
-
-      <section class="control-section network-section" aria-labelledby="networkHeading">
-        <div class="section-row">
-          <div>
-            <span class="section-kicker">扫描范围</span>
-            <h2 id="networkHeading">活动网段</h2>
-          </div>
-          <div class="network-heading-actions">
-            <button
-              id="selectAllNetworksButton"
-              class="network-select-all"
-              type="button"
-              data-tooltip="勾选全部活动网段">
-              全选
-            </button>
-            <button
-              id="refreshButton"
-              class="icon-button"
-              type="button"
-              aria-label="刷新网段"
-              data-tooltip="重新读取当前物理网段">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M20 11a8 8 0 0 0-14.8-4"></path>
-                <path d="M4 4v4h4"></path>
-                <path d="M4 13a8 8 0 0 0 14.8 4"></path>
-                <path d="M20 20v-4h-4"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <div id="networkSummary" class="network-summary">正在识别网段</div>
-        <div id="networkList" class="network-list" aria-live="polite"></div>
-        <div id="networkWarnings" class="network-warnings" hidden></div>
-      </section>
-
-      <footer class="sidebar-footer">
-        <span id="backendVersion" class="backend-version">服务 --</span>
-        <span class="footer-separator" aria-hidden="true"></span>
-        <span id="lastScanTime" class="last-scan-time">尚未扫描</span>
-      </footer>
     </aside>
 
-    <div
-      id="sidebarResizer"
-      class="panel-resizer vertical-resizer"
-      role="separator"
-      tabindex="0"
-      aria-label="调整 MAC 后缀定位与设备总表的宽度"
-      aria-orientation="vertical"
-      aria-valuemin="280"
-      aria-valuemax="560"
-      aria-valuenow="304"
-      data-tooltip="拖动调整左右区域，双击恢复默认宽度">
-      <span class="resizer-grip" aria-hidden="true"></span>
-    </div>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-button mobile-menu" type="button" data-action="toggle-sidebar" aria-label="打开导航"><svg class="icon"><use href="#i-menu"></use></svg></button>
+        <div class="topbar-title"><h1 id="topPageTitle">设备总览</h1><span id="topPageSubtitle">局域网设备档案与运行状态</span></div>
+      </div>
+      <div class="topbar-actions">
+        <button class="scan-pill is-idle" id="globalScanPill" type="button" data-action="navigate" data-view="discovery"><span class="scan-pill-dot"></span><span id="globalScanText">待机</span></button>
+        <button class="icon-button" type="button" data-action="refresh" aria-label="刷新数据" title="刷新数据"><svg class="icon"><use href="#i-refresh"></use></svg></button>
+        <button class="icon-button" type="button" data-action="toggle-theme" aria-label="切换主题" title="切换主题"><svg class="icon"><use href="#i-sliders"></use></svg></button>
+        <button class="icon-button" type="button" data-action="navigate" data-view="settings" aria-label="打开设置" title="设置"><svg class="icon"><use href="#i-settings"></use></svg></button>
+      </div>
+    </header>
 
-    <main class="workspace" aria-label="我的设备与设备总表">
-      <header class="workspace-header saved-section-header">
-        <div class="workspace-heading section-heading-inline">
-          <div class="heading-line">
-            <h2 id="savedDevicesHeading">我的设备</h2>
-            <span id="savedDevicesCount" class="count-badge">0 / 8</span>
-            <span class="section-description">收藏常用设备，下次打开可直接看到当前 IP。</span>
-          </div>
-        </div>
-        <div class="workspace-actions">
-          <span id="savedDevicesEmptyHint" class="section-empty-hint">还没有收藏的设备，<button id="savedDevicesEmptyAdd" class="text-button" type="button">添加第一个</button></span>
-          <button
-            id="themeToggle"
-            class="icon-button workspace-icon-button"
-            type="button"
-            aria-label="切换明暗主题"
-            aria-pressed="false"
-            data-tooltip="切换明暗主题">
-            <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"></path>
-            </svg>
-            <svg class="theme-icon theme-icon-dark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 3v2"></path>
-              <path d="M12 19v2"></path>
-              <path d="M3 12h2"></path>
-              <path d="M19 12h2"></path>
-              <path d="m5.6 5.6 1.4 1.4"></path>
-              <path d="m17 17 1.4 1.4"></path>
-              <path d="m18.4 5.6-1.4 1.4"></path>
-              <path d="M7 17 5.6 18.4"></path>
-              <circle cx="12" cy="12" r="4"></circle>
-            </svg>
-          </button>
-          <button id="savedDevicesRefresh" class="text-button saved-refresh-button" type="button" data-tooltip="刷新当前 IP">
-            <span id="savedDevicesRefreshSpinner" class="spinner" aria-hidden="true" hidden></span>
-            <span id="savedDevicesRefreshText">刷新 IP</span>
-          </button>
-          <button id="addSavedDeviceButton" class="secondary-button" type="button">＋ 添加</button>
-          <button
-            id="savedDevicesToggle"
-            class="icon-button saved-devices-toggle"
-            type="button"
-            aria-expanded="true"
-            aria-controls="savedDevicesBody"
-            aria-label="收起我的设备"
-            data-tooltip="收起或展开我的设备">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="m6 9 6 6 6-6"></path>
-            </svg>
-          </button>
-        </div>
-      </header>
+    <main class="main-content" id="mainContent">
+      <div class="connection-alert" id="connectionAlert" role="alert" hidden><svg class="icon"><use href="#i-alert"></use></svg><div><strong>本地服务连接异常</strong><span id="connectionAlertText">请稍后重试。</span></div><button class="btn btn-secondary btn-sm" type="button" data-action="refresh">重试</button></div>
 
-      <section id="savedDevicesPanel" class="saved-devices" aria-labelledby="savedDevicesHeading">
-        <div id="savedDevicesBody" class="saved-devices-body">
-          <div id="savedDevicesLoadingRow" class="saved-loading-row" role="status" aria-live="polite" hidden>
-            <span class="spinner" aria-hidden="true"></span>
-            <span>正在刷新当前 IP…</span>
-          </div>
-          <div id="savedDevicesList" class="saved-devices-list" role="list"></div>
+      <section class="view is-active" id="view-dashboard" data-view-panel="dashboard">
+        <div class="page-heading"><div><span class="eyebrow">Overview</span><h2>设备总览</h2><p>当前局域网设备、网卡和最近一次扫描的统一视图。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="export-all"><svg class="icon"><use href="#i-download"></use></svg>导出 CSV</button><button class="btn btn-primary" type="button" data-action="quick-scan"><svg class="icon"><use href="#i-radar"></use></svg>立即扫描</button></div></div>
+        <div class="alert-stack" id="dashboardWarnings" hidden></div>
+        <div class="stats-grid" id="dashboardStats"></div>
+        <div class="dashboard-grid">
+          <section class="card"><div class="card-header"><div><h3>当前网络</h3><p>活动网卡与可扫描网段</p></div><button class="text-button" type="button" data-action="refresh-interfaces">刷新</button></div><div class="network-summary" id="dashboardNetwork"></div></section>
+          <section class="card"><div class="card-header"><div><h3>最近发现</h3><p>按最后发现时间排序</p></div><button class="text-button" type="button" data-action="navigate" data-view="inventory">查看全部<svg class="icon"><use href="#i-chevron-right"></use></svg></button></div><div class="recent-list" id="recentDevices"></div></section>
+        </div>
+        <section class="card card-table">
+          <div class="card-header"><div><h3>设备清单</h3><p id="dashboardTableSummary">正在读取设备档案</p></div><div class="card-header-actions"><label class="search-box compact"><svg class="icon"><use href="#i-search"></use></svg><input id="dashboardSearch" type="search" placeholder="搜索名称、IP、MAC、厂商" autocomplete="off"></label><select id="dashboardStatus" class="select compact" aria-label="筛选设备状态"><option value="all">全部状态</option><option value="online">在线</option><option value="offline">离线</option><option value="unknown">未知</option></select></div></div>
+          <div class="table-scroll" id="dashboardTable"></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-discovery" data-view-panel="discovery">
+        <div class="page-heading"><div><span class="eyebrow">Discovery</span><h2>网络扫描</h2><p>选择真实网卡网段或自定义 IP 范围，扫描任务独立于当前页面运行。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="refresh-interfaces"><svg class="icon"><use href="#i-refresh"></use></svg>刷新网卡</button></div></div>
+        <div class="discovery-layout">
+          <section class="card scan-scope-card">
+            <div class="card-header"><div><h3>扫描范围</h3><p>自动识别网卡、掩码和网段</p></div><button class="text-button" type="button" data-action="select-all-segments">全选网段</button></div>
+            <div class="segment-list" id="segmentOptions"></div>
+            <div class="form-field"><label for="customRanges">自定义 IP 范围 <span class="label-optional">可选</span></label><textarea id="customRanges" rows="3" placeholder="192.168.1.10-192.168.1.80&#10;10.0.0.0/24&#10;192.168.1.25"></textarea><span class="field-hint" id="rangeHint">支持 CIDR、起止 IP 和单个 IP；每行一个。</span></div>
+            <div class="scan-config-hint" id="scanConfigHint">扫描超时 900 ms · 并发 64</div>
+            <div class="scan-controls"><button class="btn btn-primary" type="button" data-action="start-scan"><svg class="icon"><use href="#i-play"></use></svg>开始扫描</button><button class="btn btn-secondary" type="button" data-action="pause-scan" id="pauseScanButton" disabled><svg class="icon"><use href="#i-pause"></use></svg>暂停</button><button class="btn btn-secondary" type="button" data-action="resume-scan" id="resumeScanButton" disabled><svg class="icon"><use href="#i-play"></use></svg>恢复</button><button class="btn btn-danger-ghost" type="button" data-action="stop-scan" id="stopScanButton" disabled><svg class="icon"><use href="#i-stop"></use></svg>停止</button></div>
+          </section>
+          <section class="card scan-progress-card">
+            <div class="scan-status-panel" id="scanStatusPanel"></div>
+            <div class="progress-block"><div class="progress-head"><span id="scanProgressLabel">等待开始</span><strong id="scanProgressValue">0%</strong></div><div class="progress-track"><span id="scanProgressBar" style="width:0%"></span></div><div class="progress-meta"><span id="scanHostCounts">0 / 0 台主机</span><span id="scanCurrentRange">未选择扫描范围</span></div></div>
+            <div class="alert-stack" id="scanWarnings" hidden></div>
+            <div class="card-subheader"><h3>实时结果 <span class="count-badge" id="scanResultCount">0</span></h3><button class="btn btn-secondary btn-sm" type="button" data-action="export-scan" id="exportScanButton" disabled><svg class="icon"><use href="#i-download"></use></svg>导出本轮</button></div>
+            <div class="table-scroll" id="discoveryResults"></div>
+          </section>
         </div>
       </section>
 
-      <header class="workspace-header device-table-header">
-        <div class="workspace-heading">
-          <div class="heading-line">
-            <h2 id="tableHeading">设备总表</h2>
-            <span id="resultCount" class="count-badge">0</span>
-          </div>
-          <p id="resultSummary">正在主动探测当前物理网段中的设备。</p>
-        </div>
-        <div class="workspace-actions">
-          <button id="copyIpButton" class="secondary-button" type="button" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-              <path d="M7 9h3"></path>
-              <path d="M13 9h4"></path>
-              <path d="M7 13h5"></path>
-              <path d="M15 13h2"></path>
-            </svg>
-            <span>复制 IP</span>
-          </button>
-          <button id="copyButton" class="secondary-button" type="button" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <rect x="8" y="8" width="12" height="12" rx="2"></rect>
-              <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
-            </svg>
-            <span>复制 MAC</span>
-          </button>
-          <button id="exportButton" class="secondary-button" type="button" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 3v11"></path>
-              <path d="m8 10 4 4 4-4"></path>
-              <path d="M5 20h14"></path>
-            </svg>
-            <span>导出 CSV</span>
-          </button>
-          <button
-            id="clearButton"
-            class="icon-button workspace-icon-button"
-            type="button"
-            aria-label="清除搜索并返回设备总表"
-            data-tooltip="清除搜索并返回设备总表"
-            disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M19 12H5"></path>
-              <path d="m11 18-6-6 6-6"></path>
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      <section class="results-surface" aria-label="结果表格">
-        <div id="tableToolbar" class="table-toolbar" hidden>
-          <div class="table-filter">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <circle cx="10.5" cy="10.5" r="6.5"></circle>
-              <path d="m15.3 15.3 5.2 5.2"></path>
-            </svg>
-            <input
-              id="tableFilter"
-              type="search"
-              placeholder="筛选 IP、MAC 或状态"
-              aria-label="筛选当前设备表格"
-              aria-controls="resultsBody"
-              autocomplete="off"
-              spellcheck="false">
-            <button
-              id="tableFilterClear"
-              class="table-filter-clear"
-              type="button"
-              aria-label="清除表格筛选"
-              data-tooltip="清除表格筛选"
-              hidden>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M6 6 18 18"></path>
-                <path d="M18 6 6 18"></path>
-              </svg>
-            </button>
-          </div>
-          <div id="networkScopeChips" class="scope-chips" aria-label="当前网段"></div>
-          <span id="tableFilterSummary" class="table-filter-summary" aria-live="polite"></span>
-        </div>
-
-        <div id="targetSummary" class="target-summary" hidden>
-          <span class="target-summary-label">查找目标</span>
-          <div id="targetChips" class="target-chips" aria-live="polite"></div>
-        </div>
-
-        <div id="tableWrap" class="table-wrap" hidden>
-          <table class="results-table">
-            <thead>
-              <tr>
-                <th scope="col" class="select-column"><span class="sr-only">选择</span></th>
-                <th scope="col" class="network-column" data-sort-key="interface" aria-sort="none">
-                  <button class="sort-button" type="button" data-sort-key="interface">网段</button>
-                </th>
-                <th scope="col" data-sort-key="ip" aria-sort="none">
-                  <button class="sort-button" type="button" data-sort-key="ip">IP 地址</button>
-                </th>
-                <th scope="col" data-sort-key="mac" aria-sort="none">
-                  <button class="sort-button" type="button" data-sort-key="mac">MAC 地址</button>
-                </th>
-                <th scope="col" class="target-column">匹配后缀</th>
-                <th scope="col" data-sort-key="state" aria-sort="none">
-                  <button class="sort-button" type="button" data-sort-key="state">状态</button>
-                </th>
-                <th scope="col" class="actions-column">操作</th>
-              </tr>
-            </thead>
-            <tbody id="resultsBody"></tbody>
-          </table>
-        </div>
-
-        <div id="emptyState" class="empty-state">
-          <div class="empty-illustration" aria-hidden="true">
-            <svg viewBox="0 0 64 64" focusable="false">
-              <circle cx="27" cy="27" r="15"></circle>
-              <path d="m38 38 13 13"></path>
-              <circle cx="27" cy="27" r="3"></circle>
-              <circle cx="20" cy="21" r="2.5"></circle>
-              <circle cx="34" cy="21" r="2.5"></circle>
-              <circle cx="27" cy="34" r="2.5"></circle>
-              <path d="m22 22 3 3M32 22l-3 3M27 30v2"></path>
-            </svg>
-          </div>
-          <h3 id="emptyTitle">正在读取设备</h3>
-          <p id="emptyMessage">当前网段中探测到的设备会显示在这里。</p>
-          <button id="emptyRefreshButton" class="text-button" type="button">刷新设备总表</button>
-        </div>
+      <section class="view" id="view-inventory" data-view-panel="inventory">
+        <div class="page-heading"><div><span class="eyebrow">Inventory</span><h2>设备管理</h2><p>持久化设备档案、手动名称、备注、收藏和 IP 历史。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="refresh"><svg class="icon"><use href="#i-refresh"></use></svg>刷新</button><button class="btn btn-secondary" type="button" data-action="export-filtered"><svg class="icon"><use href="#i-download"></use></svg>导出当前列表</button></div></div>
+        <section class="card card-table">
+          <div class="inventory-toolbar"><div class="filter-tabs" id="inventoryFilterTabs" role="tablist"><button class="filter-tab is-active" type="button" data-action="inventory-status" data-status="all">全部</button><button class="filter-tab" type="button" data-action="inventory-status" data-status="online">在线</button><button class="filter-tab" type="button" data-action="inventory-status" data-status="offline">离线</button><button class="filter-tab" type="button" data-action="inventory-favorite" data-status="favorite">收藏</button></div><div class="inventory-actions"><label class="search-box"><svg class="icon"><use href="#i-search"></use></svg><input id="inventorySearch" type="search" placeholder="搜索设备名称、IP、MAC 或厂商" autocomplete="off"></label><select id="inventorySort" class="select" aria-label="排序方式"><option value="last_seen_at:descending">最近发现</option><option value="name:ascending">名称 A-Z</option><option value="ip:ascending">IP 升序</option><option value="mac:ascending">MAC 升序</option><option value="status:ascending">状态优先</option></select></div></div>
+          <div class="bulk-bar" id="bulkBar" hidden><span><strong id="bulkCount">0</strong> 台设备已选择</span><div><button class="btn btn-secondary btn-sm" type="button" data-action="export-selected">导出所选</button><button class="text-button" type="button" data-action="clear-selection">清除选择</button></div></div>
+          <div class="table-scroll" id="inventoryTable"></div>
+          <div class="table-footer"><div class="table-footer-meta" id="inventoryPaginationLabel">0 台设备</div><div class="pagination" id="inventoryPagination"></div><label class="page-size">每页<select id="inventoryPageSize" class="select compact"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label></div>
+        </section>
       </section>
 
-      <footer class="workspace-footer">
-        <div class="selected-summary">
-          <span class="selection-dot" aria-hidden="true"></span>
-          <span id="selectionText">未选择设备</span>
-        </div>
-        <span id="scanFooterMeta" class="scan-footer-meta">等待网络扫描</span>
-      </footer>
+      <section class="view" id="view-lookup" data-view-panel="lookup">
+        <div class="page-heading"><div><span class="eyebrow">Lookup</span><h2>MAC 定位</h2><p>完整 MAC、6 位前缀或 4 位后缀查询，支持批量输入与厂商识别。</p></div></div>
+        <section class="card lookup-input-card">
+          <div class="lookup-grid"><div><div class="card-header"><div><h3>输入 MAC 查询</h3><p>格式自动识别，无需手动选择查询模式</p></div></div><form id="lookupForm"><div class="form-field"><label for="lookupInput">MAC 地址或片段</label><textarea id="lookupInput" rows="5" placeholder="02-42-AC-11-00-10&#10;02:42:AC&#10;0010" spellcheck="false"></textarea><span class="field-hint" id="lookupHint">一行一个，也支持逗号分隔；单次最多 64 个。</span></div><div class="page-actions align-left"><button class="btn btn-primary" type="submit"><svg class="icon"><use href="#i-search"></use></svg>开始定位</button><button class="btn btn-secondary" type="button" data-action="clear-lookup">清空</button></div></form></div>
+            <div class="lookup-guide"><div class="guide-item"><span class="guide-icon"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>完整 MAC</strong><span>12 位十六进制，关联唯一设备档案。</span></div></div><div class="guide-item"><span class="guide-icon"><svg class="icon"><use href="#i-filter"></use></svg></span><div><strong>6 位前缀</strong><span>用于按 OUI 厂商或地址段定位。</span></div></div><div class="guide-item"><span class="guide-icon"><svg class="icon"><use href="#i-list"></use></svg></span><div><strong>4 位后缀</strong><span>兼容旧版 MAC 后四位查找方式。</span></div></div><div class="guide-note"><svg class="icon"><use href="#i-info"></use></svg><span>厂商库为本地离线 OUI 表；无法识别的地址仍可查询设备档案。</span></div></div>
+          </div>
+        </section>
+        <div class="lookup-results" id="lookupResults"><div class="empty-state"><span class="empty-icon"><svg class="icon"><use href="#i-search"></use></svg></span><h3>等待 MAC 查询</h3><p>查询结果会关联到已持久化的设备档案。</p></div></div>
+      </section>
+
+      <section class="view" id="view-analysis" data-view-panel="analysis">
+        <div class="page-heading"><div><span class="eyebrow">Analysis</span><h2>网络分析</h2><p>查看网卡、IP、掩码、网关、DNS、设备分布并执行真实 Ping 探测。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="refresh-analysis"><svg class="icon"><use href="#i-refresh"></use></svg>重新读取</button></div></div>
+        <div class="analysis-grid"><section class="card"><div class="card-header"><div><h3>网络接口</h3><p>IP、掩码、网关与 DNS</p></div></div><div class="interface-list" id="analysisInterfaces"></div></section><section class="card"><div class="card-header"><div><h3>设备分布</h3><p>按最近一次记录的网段统计</p></div></div><div class="distribution-list" id="analysisDistribution"></div></section></div>
+        <section class="card ping-card"><div class="card-header"><div><h3>连通性检测</h3><p>使用系统 ICMP 探测，统计延迟与丢包</p></div></div><form id="pingForm" class="ping-form"><label class="form-field"><span>目标 IPv4</span><input id="pingAddress" type="text" inputmode="decimal" placeholder="192.168.1.1" autocomplete="off"></label><label class="form-field field-small"><span>次数</span><select id="pingCount" class="select"><option value="4">4 次</option><option value="2">2 次</option><option value="6">6 次</option><option value="10">10 次</option></select></label><button class="btn btn-primary" type="submit"><svg class="icon"><use href="#i-activity"></use></svg>开始 Ping</button></form><div class="ping-results" id="pingResults"><div class="inline-empty">输入地址开始检测，或从上方网卡卡片选择网关。</div></div></section>
+      </section>
+
+      <section class="view" id="view-history" data-view-panel="history">
+        <div class="page-heading"><div><span class="eyebrow">History</span><h2>扫描历史</h2><p>每次扫描的范围、发现设备、新增、离线和 IP 变化均可追溯。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="refresh"><svg class="icon"><use href="#i-refresh"></use></svg>刷新</button></div></div>
+        <section class="card card-table"><div class="table-scroll" id="historyTable"></div></section>
+      </section>
+
+      <section class="view" id="view-settings" data-view-panel="settings">
+        <div class="page-heading"><div><span class="eyebrow">Settings</span><h2>系统设置</h2><p>扫描默认值、数据存储、CSV 导出和主题配置会保存到本机。</p></div></div>
+        <form id="settingsForm"><div class="settings-grid">
+          <section class="card"><div class="card-header"><div><h3>扫描参数</h3><p>影响后续新建的扫描任务</p></div><span class="card-icon"><svg class="icon"><use href="#i-radar"></use></svg></span></div><div class="form-grid two-columns"><label class="form-field"><span>Ping 超时（ms）</span><input id="settingTimeout" type="number" min="200" max="5000" step="100"></label><label class="form-field"><span>并发探测数</span><input id="settingConcurrency" type="number" min="1" max="128"></label><label class="form-field span-2"><span>默认网卡</span><select id="settingInterface" class="select"><option value="">自动选择全部可用网段</option></select></label><label class="form-field"><span>离线判定（分钟）</span><input id="settingOffline" type="number" min="1" max="1440"></label><label class="form-field"><span>自动扫描间隔（分钟）</span><input id="settingAutoInterval" type="number" min="5" max="1440"></label></div><label class="toggle-row"><input id="settingAutoScan" type="checkbox"><span class="toggle-ui"></span><span><strong>启用自动扫描</strong><small>应用运行期间按间隔创建扫描任务，默认关闭。</small></span></label></section>
+          <section class="card"><div class="card-header"><div><h3>CSV 导出</h3><p>兼容 Excel 与批量分析</p></div><span class="card-icon"><svg class="icon"><use href="#i-download"></use></svg></span></div><label class="toggle-row"><input id="settingCsvBom" type="checkbox"><span class="toggle-ui"></span><span><strong>写入 UTF-8 BOM</strong><small>确保中文在 Excel 中正确显示。</small></span></label><label class="toggle-row"><input id="settingCsvHeader" type="checkbox"><span class="toggle-ui"></span><span><strong>包含表头</strong><small>导出文件首行包含列名。</small></span></label><label class="toggle-row"><input id="settingCsvNotes" type="checkbox"><span class="toggle-ui"></span><span><strong>包含设备备注</strong><small>导出用户维护的备注字段。</small></span></label></section>
+          <section class="card"><div class="card-header"><div><h3>外观与数据</h3><p>本地偏好与存储位置</p></div><span class="card-icon"><svg class="icon"><use href="#i-database"></use></svg></span></div><label class="form-field"><span>主题</span><select id="settingTheme" class="select"><option value="light">浅色主题</option><option value="dark">深色主题</option></select></label><label class="form-field"><span>数据存储位置</span><input id="settingDataDir" type="text" readonly></label><div class="setting-note"><svg class="icon"><use href="#i-info"></use></svg><span>设备档案、扫描历史与设置保存在本机 SQLite 数据库，不上传任何数据。</span></div></section>
+          <section class="card about-card"><div class="card-header"><div><h3>关于 Network Locator</h3><p>专业局域网设备发现与档案管理</p></div><span class="card-icon"><svg class="icon"><use href="#i-shield"></use></svg></span></div><dl class="about-list"><dt>应用版本</dt><dd id="aboutVersion">2.0.0</dd><dt>数据模型</dt><dd id="aboutSchema">Schema 2</dd><dt>服务地址</dt><dd>127.0.0.1（仅本机）</dd><dt>扫描方式</dt><dd>ARP + ICMP Ping</dd></dl></section>
+        </div><div class="settings-actions"><span id="settingsStatus" class="settings-status"></span><button class="btn btn-primary" type="submit"><svg class="icon"><use href="#i-check"></use></svg>保存设置</button></div></form>
+      </section>
     </main>
   </div>
 
-  <div id="glassTooltip" class="glass-tooltip" role="tooltip" hidden>
-    <span id="glassTooltipText"></span>
-  </div>
-  <div id="savedDeviceDialog" class="modal-backdrop" hidden>
-    <div class="modal saved-device-modal" role="dialog" aria-modal="true" aria-labelledby="savedDialogTitle">
-      <div id="savedDeviceView">
-        <header class="modal-header">
-          <h3 id="savedDialogTitle">已保存的 MAC</h3>
-          <button id="savedViewClose" class="icon-button modal-close" type="button" aria-label="关闭">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M6 6 18 18"></path>
-              <path d="M18 6 6 18"></path>
-            </svg>
-          </button>
-        </header>
-        <dl class="saved-detail">
-          <dt>MAC 后四位</dt>
-          <dd id="savedViewMac" class="mono-value"></dd>
-          <dt>用途说明</dt>
-          <dd id="savedViewNote"></dd>
-          <dt>当前 IP</dt>
-          <dd id="savedViewIp" class="mono-value"></dd>
-          <dt>最后发现</dt>
-          <dd id="savedViewLastSeen"></dd>
-        </dl>
-        <footer class="modal-actions">
-          <button id="savedDeleteButton" class="secondary-button danger-text" type="button">删除</button>
-          <div class="modal-actions-right">
-            <button id="savedUseButton" class="secondary-button" type="button">用于搜索</button>
-            <button id="savedEditButton" class="primary-button" type="button">编辑</button>
-          </div>
-        </footer>
-      </div>
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="detail-drawer" id="detailDrawer" aria-hidden="true" aria-labelledby="drawerTitle"><header class="drawer-header"><div><span class="drawer-kicker" id="drawerKicker">设备详情</span><h2 id="drawerTitle">设备档案</h2></div><button class="icon-button" type="button" data-action="close-drawer" aria-label="关闭详情"><svg class="icon"><use href="#i-x"></use></svg></button></header><div class="drawer-body" id="drawerBody"></div></aside>
 
-      <div id="savedDeviceForm" hidden>
-        <header class="modal-header">
-          <h3 id="savedFormTitle">添加 MAC</h3>
-          <button id="savedFormClose" class="icon-button modal-close" type="button" aria-label="关闭">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M6 6 18 18"></path>
-              <path d="M18 6 6 18"></path>
-            </svg>
-          </button>
-        </header>
-        <div class="form-field">
-          <label for="savedMacInput">MAC 后四位</label>
-          <input
-            id="savedMacInput"
-            type="text"
-            placeholder="AA-BB / AA:BB / AABB"
-            autocomplete="off"
-            spellcheck="false"
-            autocapitalize="none"
-            aria-describedby="savedMacError savedMacHint">
-          <p id="savedMacError" class="field-error" hidden></p>
-          <p id="savedMacHint" class="field-hint">支持 AA-BB / AA:BB / AABB，重复的 MAC 不能保存。</p>
-        </div>
-        <div class="form-field">
-          <label for="savedNoteInput">用途说明</label>
-          <input
-            id="savedNoteInput"
-            type="text"
-            maxlength="100"
-            placeholder="例如：客厅电视、财务打印机"
-            autocomplete="off">
-          <span id="savedNoteCount" class="field-counter">0 / 100</span>
-        </div>
-        <footer class="modal-actions">
-          <button id="savedFormCancel" class="secondary-button" type="button">取消</button>
-          <button id="savedFormSave" class="primary-button" type="button">保存</button>
-        </footer>
-      </div>
-    </div>
-  </div>
-
-  <div id="confirmDialog" class="modal-backdrop modal-backdrop-top" hidden>
-    <div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
-      <h3 id="confirmTitle">确认</h3>
-      <p id="confirmMessage"></p>
-      <footer class="modal-actions">
-        <button id="confirmCancel" class="secondary-button" type="button">取消</button>
-        <button id="confirmOk" class="primary-button danger" type="button">确定</button>
-      </footer>
-    </div>
-  </div>
-
-  <div id="toastRegion" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
-
-  <script src="./csv.js?v=__APP_VERSION__" defer></script>
-  <script src="./app.js?v=__APP_VERSION__" defer></script>
+  <div class="toast-region" id="toastRegion" role="status" aria-live="polite" aria-atomic="true"></div>
+  <noscript><div class="noscript">Network Locator 需要启用 JavaScript 才能使用。</div></noscript>
+  <script src="./v2-utils.js?v=__APP_VERSION__" defer></script>
+  <script src="./v2-api.js?v=__APP_VERSION__" defer></script>
+  <script src="./v2-app.js?v=__APP_VERSION__" defer></script>
 </body>
 </html>

@@ -1,95 +1,111 @@
-# 网络定位 Network Locator（Windows）
+# 网络定位 Network Locator V2.0（Windows）
 
-单文件 Windows 应用：在当前电脑所在的物理局域网中，按 MAC 地址后四位查找设备。
+Professional 局域网设备发现与管理桌面应用。单文件 `network-locator.exe` 使用 WebView2 原生窗口，本地 Python 服务只监听 `127.0.0.1`，不向局域网开放端口。
 
-- 与 TOS 版 [`network-locator`](https://github.com/642671/network-locator) 1.3.7 使用同一套 WebUI 与匹配逻辑
-- 单文件 `network-locator.exe`，无需安装 Python 或浏览器扩展
-- 只在本机回环地址 `127.0.0.1:18743` 提供页面，不对局域网开放端口
-- 使用 WebView2（pywebview）打开原生应用窗口，没有浏览器地址栏和标签页，界面与 TOS 版一致
+V2 不是换肤：设备档案、扫描历史、MAC 定位、网络分析和设置均迁移到本机 SQLite 持久化模型，扫描任务独立于页面生命周期运行。
 
-## 功能
+## 页面与能力
 
-| 能力 | Windows 实现 |
+| 页面 | 主要能力 |
 | --- | --- |
-| 网卡与网段发现 | `GetAdaptersInfo`（iphlpapi），失败时回退到 PowerShell `Get-NetIPConfiguration` |
-| 物理网卡过滤 | 跳过 Hyper-V、WSL、VMware、Tailscale、Docker 等虚拟网卡；若机器上只有虚拟网卡，则将其作为可用网段 |
-| 邻居表读取 | `arp.exe -a -N <本机地址>`，兼容中英文 Windows 输出 |
-| MAC 归一化 | `AA-BB`、`AA:BB`、`AABB` 三种输入；统一输出 `AA-BB-CC-DD-EE-FF` |
-| 扫描 | 选定网段、UDP 预热 ARP、并发 `ping` 探测、开始/停止状态机与进度 |
-| 设备总表 | 筛选、排序、复制 IP/MAC、CSV 导出、深浅色主题、工具提示 |
-| 常用 MAC | 保存常用后缀与备注，结果自动关联上次发现的 IP |
-| 持续搜索 | 多轮扫描，找到目标后自动结束；最多 10 轮无结果后提示 |
+| 设备总览 | 设备统计、当前网卡与网段、最近发现、全局搜索/状态筛选/排序、复制 IP/MAC、立即扫描、CSV 导出 |
+| 网络扫描 | 多网卡识别、多网段选择、自定义 CIDR/IP 范围、进度、暂停/恢复/停止、实时结果、异常提示、本轮导出 |
+| 设备管理 | 全部/在线/离线/收藏筛选、名称/备注/收藏维护、批量选择、批量导出、详情抽屉、IP 历史与设备事件 |
+| MAC 定位 | 完整 MAC、6 位前缀、4 位后缀、批量查询、格式自动识别、本地 OUI 厂商识别、关联设备档案 |
+| 网络分析 | IP、掩码、网关、DNS、网段、设备分布、网关连通性检测、指定 IPv4 Ping、延迟与丢包统计 |
+| 扫描历史 | 任务列表、范围、发现/新增/离线/IP 变化、任务详情、历史结果 CSV |
+| 系统设置 | 超时、并发、默认网卡、离线阈值、自动扫描、CSV 配置、主题、数据位置与关于信息 |
 
-扫描结果的“状态”含义：
+## 技术栈
 
-- `本机 LOCAL`：当前电脑的网卡地址
-- `可达 REACHABLE`：本轮 ping 有响应
-- `陈旧 STALE`：仅存在于 ARP 缓存，本轮没有响应
-- Windows 没有 Linux 的 `DELAY` / `PROBE` 邻居状态，因此不会出现这两类值
+- 后端：Python 3.10+ 标准库；Windows 网卡 API、`arp.exe`、并发 `ping.exe`
+- 持久化：SQLite（WAL），无第三方 Python 依赖
+- 前端：原生 HTML/CSS/JavaScript，无打包链、无前端运行时
+- 桌面窗口：pywebview + Microsoft Edge WebView2，失败时回退 Edge/Chrome 应用窗口
+- 本地 API：`http://127.0.0.1:<port>/api/v2/*`
 
-## 下载与运行
+## 数据模型
 
-1. 从 [Releases](https://github.com/642671/network-locator-exe/releases) 下载 `network-locator.exe`
-2. 双击运行，应用会启动本地服务并打开 WebView2 原生窗口
-3. 关闭应用窗口即退出；本地服务随进程一起停止
+| 实体 | 作用 |
+| --- | --- |
+| `devices` | 设备档案；`device_id` 为唯一标识，保存手动名称、备注、收藏、当前 IP/MAC、厂商和状态 |
+| `device_addresses` | 设备 IP 地址历史，同一设备更换 IP 时追加/更新记录 |
+| `network_interfaces` | 网卡快照：索引、别名、本机 IP、掩码、网关、DNS、虚拟网卡标记 |
+| `network_segments` | 可扫描网段，与网卡关联 |
+| `scan_tasks` | 扫描任务、范围、配置、进度、警告、统计结果 |
+| `scan_results` | 单次扫描中的设备/IP/MAC/网卡/状态观察 |
+| `device_events` | 新发现、IP 变化、恢复在线、转离线等状态事件 |
+| `settings` | 本机键值配置 |
 
-窗口打开顺序（自动回退，不会白屏）：
+身份判定规则：
 
-1. WebView2 原生窗口（需要 Microsoft Edge WebView2 运行时；Windows 10/11 通常已内置）
-2. 若运行时缺失或原生窗口启动失败：Microsoft Edge / Google Chrome 的 `--app` 应用窗口
-3. 若两者都不可用：系统默认浏览器，并提示关闭提示框即退出
+- 设备不以 IP 作为唯一标识。优先使用 MAC 关联已有档案。
+- 同一 MAC 换 IP 时更新 `current_ip` 并保留旧地址与 `ip_changed` 事件。
+- 同一 MAC 在同一轮扫描中出现多个 IP 时按冲突处理，保留多个档案，避免错误合并。
+- 无 MAC 时才使用 IP + 随机 UUID 建立临时档案。
+- 用户手动设置的名称、备注、收藏只由 `PATCH /api/v2/devices/<id>` 修改，扫描不会覆盖。
 
-没有 WebView2 运行的机器可以从 [Microsoft WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) 安装 Evergreen Runtime 后重新打开应用。
+状态规则：
 
-首次运行如果 Windows 防火墙询问，请允许该程序访问网络（仅需要出站 ICMP/ARP）。
+- `在线`：本轮扫描命中且状态为 `LOCAL` 或 `REACHABLE`。
+- `离线`：全量扫描确认未出现，或已超过设置的离线阈值。
+- `未知`：仅有 ARP 缓存、被部分扫描跳过、或尚未达到离线阈值。
+- 部分网段和自定义范围扫描不会把未覆盖网段的设备误判为离线。
 
-卸载：删除 `network-locator.exe`，再删除 `%LOCALAPPDATA%\NetworkLocator` 即可，不会写系统服务或注册表启动项。
+## 运行
+
+发布包直接运行 `network-locator.exe`。源码运行：
+
+```powershell
+cd network-locator-exe
+python launcher.py
+```
+
+只启动本地服务、不打开窗口：
+
+```powershell
+python launcher.py --serve-only --ready-file ready.json --port 0 --duration 10
+```
+
+环境变量：
+
+| 变量 | 用途 |
+| --- | --- |
+| `NETWORK_LOCATOR_PORT` | 覆盖本地端口 |
+| `NETWORK_LOCATOR_DATA_DIR` | 覆盖 SQLite 数据目录 |
+| `NETWORK_LOCATOR_GUI` | `auto` / `native` / `app-window` / `browser` |
+| `NETWORK_LOCATOR_BROWSER` | 指定回退浏览器路径 |
 
 ## 数据与日志
 
 | 路径 | 内容 |
 | --- | --- |
-| `%LOCALAPPDATA%\NetworkLocator\config.json` | 端口与浏览器选择 |
+| `%LOCALAPPDATA%\NetworkLocator\data\network-locator.db` | 设备档案、地址历史、扫描历史、事件和设置 |
+| `%LOCALAPPDATA%\NetworkLocator\config.json` | 本地端口与回退浏览器 |
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | 运行日志 |
-| `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 原生窗口的本地存储（保留常用 MAC、主题与缓存） |
-| `%LOCALAPPDATA%\NetworkLocator\browser-profile\` | 回退到 Edge/Chrome 应用窗口时使用的浏览器配置 |
+| `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 本机配置 |
 
-设置 `NETWORK_LOCATOR_PORT` 可临时覆盖端口；设置 `NETWORK_LOCATOR_BROWSER` 可指定回退用的浏览器可执行文件。
+删除 `network-locator.exe` 和 `%LOCALAPPDATA%\NetworkLocator` 即可完成卸载。应用不写注册表启动项、系统服务或计划任务。
 
-设置 `NETWORK_LOCATOR_GUI` 可强制指定窗口模式，便于排查环境问题：
+## V1 到 V2 数据迁移
 
-| 值 | 行为 |
-| --- | --- |
-| `auto`（默认） | 原生窗口 → Edge/Chrome 应用窗口 → 默认浏览器 |
-| `native` | 只用 WebView2 原生窗口，失败则报错退出 |
-| `app-window` | 跳过原生窗口，直接使用 Edge/Chrome 应用窗口 |
-| `browser` | 直接使用默认浏览器 |
+V1 仅有浏览器 `localStorage` 中的网段/设备缓存、常用 MAC 别名和界面偏好，没有可靠的设备档案。V2 不使用这些易失缓存作为设备身份来源，因此采用安全迁移策略：
 
-## 与 TOS 版的差异
+1. 不删除 V1 的 WebView2 本机存储，旧数据仍保留在 `%LOCALAPPDATA%\NetworkLocator\webview`。
+2. 首次 V2 启动创建新的 SQLite 数据库，不把 IP 缓存或常用后缀直接伪造成设备。
+3. 完成首次真实扫描后，设备由 MAC/IP/网卡观察重建档案。
+4. 旧“常用 MAC”后缀可继续在 MAC 定位页查询；设备备注可在详情抽屉重新维护。
 
-TOS 版是 Deb 应用，运行在 NAS 上，通过 systemd、Unix socket 和平台 iframe 代理访问。Windows 版做了等价替换：
+该策略避免把随机 MAC、MAC 冲突、旧 IP 缓存或虚拟网卡错误合并到新档案中。完整说明见 [V2_REFACTOR.md](V2_REFACTOR.md)。
 
-| TOS 版 | Windows 版 |
-| --- | --- |
-| systemd 服务 `network-locator` | 单进程 EXE，关闭窗口即退出 |
-| `/var/api/network-locator.sock` | `http://127.0.0.1:18743/` |
-| 平台 iframe 代理与 TOS 会话 | 同源本地页面，无需平台鉴权 |
-| `ip addr` / `ip route` | `GetAdaptersInfo` + PowerShell 回退 |
-| `ip neigh` | `arp -a` |
-| `ping -I <网卡>` | `ping -n 1 -w <毫秒>` |
-| TOS 桌面图标 | 直接运行 EXE |
+## 测试
 
-Windows 上不再需要“登录会话”“平台代理”这类概念，因此页面中的相关提示改成了本地服务提示。
+```powershell
+python -m unittest discover -s tests -v
+node --test tests\frontend_csv.test.js tests\frontend_search_state.test.js tests\frontend_saved_macs.test.js tests\frontend_v2_utils.test.js
+```
 
-## 隐私
-
-完整说明见 [PRIVACY.md](PRIVACY.md)（随仓库公开发布）。要点：
-
-- 不收集账号、遥测或崩溃上报；没有任何向开发者或第三方的上传行为，也没有更新检查
-- 页面只监听 `127.0.0.1`；扫描只向你在界面上选择的网段发送 ICMP 探测包和触发 ARP 解析的 UDP 包
-- 配置、常用 MAC、主题与日志都写在 `%LOCALAPPDATA%\NetworkLocator`，日志不会自动轮转或删除
-- 卸载时删除 `network-locator.exe` 和该目录即可，不写系统服务、注册表或启动项
-- 原生窗口依赖系统自带的 Microsoft Edge WebView2 运行时，该运行时按其自身条款可能联网更新组件
+后端测试覆盖设备身份、IP 变化、重复观察去重、MAC 冲突、手动字段保护、部分扫描离线判定、多网段扫描、扫描暂停/恢复/停止、设置、CSV、查找和 HTTP 契约。前端 Node 测试覆盖 MAC 格式、过滤排序、实时结果合并、自定义范围校验和旧版 CSV 兼容。
 
 ## 构建
 
@@ -100,34 +116,24 @@ python -m pip install -r requirements-build.txt
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-构建流程会执行：
+构建流程：
 
-1. 生成图标（Pillow）
-2. Python 单元测试（匹配、ARP 解析、扫描状态、HTTP 契约）
-3. `node --check` 与前端 Node 测试（需要 Node.js）
+1. 生成应用图标
+2. Python 单元测试与 `py_compile`
+3. 前端 JavaScript 语法检查和 Node 测试
 4. PyInstaller 单文件打包
-5. EXE 自检 `--selftest`（网卡发现 + WebUI 资源 + pywebview 模块 + 图标完整性）
-6. EXE `--serve-only` 冒烟测试（`/health`、首页与版本占位符替换）
-7. 输出 `release\network-locator.exe` 与 `.sha256`
-
-CI 使用 GitHub Actions `windows-latest` 构建；推送 `v*` 标签会自动创建 Release。
-
-## 命令行
-
-```text
-network-locator.exe                    正常启动
-network-locator.exe --selftest --result-file selftest.json
-network-locator.exe --serve-only --ready-file ready.json --port 0 --duration 10
-network-locator.exe --version
-```
+5. EXE 自检（网卡发现、V2 WebUI 资源、pywebview、图标）
+6. `--serve-only` 冒烟测试（健康检查、首页、版本占位符）
+7. 输出 `release\network-locator.exe` 和 SHA256
 
 ## 已知限制
 
-- 仅支持 Windows 10/11；依赖系统的 `ping.exe` 与 `arp.exe`
-- 原生窗口依赖 Microsoft Edge WebView2 运行时；缺失时会回退到 Edge/Chrome 应用窗口
-- 回退的应用窗口需要 Microsoft Edge 或 Google Chrome；两者都没有时会使用默认浏览器
-- 目标主机或本机防火墙禁止 ICMP 时，ping 结果会缺失，但 ARP 缓存中的设备仍会显示为“陈旧”
-- 扫描范围沿用 TOS 版的安全上限：单个网段最多 1022 台主机
+- 仅支持 Windows 10/11；依赖系统 `ping.exe`、`arp.exe` 和 IPv4。
+- Windows 无法像 Linux 一样把 ICMP 绑定到指定网卡；多网卡路由最终由系统路由表决定。
+- 防火墙阻止 ICMP 时，ARP 缓存中的设备仍会显示为“ARP 缓存/未知”，不会伪装成在线。
+- 单个自定义范围最多 1022 台主机，总计最多 4096 台；默认网段安全上限为 1022 台。
+- MAC 厂商库为内置离线 OUI 子集，未命中时显示“未知厂商”。
+- 旧 V1 `localStorage` 别名不会自动合并到 SQLite，详见迁移策略。
 
 ## 许可证
 

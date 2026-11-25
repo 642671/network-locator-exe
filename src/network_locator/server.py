@@ -6,13 +6,15 @@ import json
 import logging
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import APP_ID, APP_NAME, __version__
 from .core import (
+    CommandError,
     ScanManager,
     collect_neighbor_devices,
     max_configured_hosts,
@@ -23,6 +25,9 @@ from .core import (
     select_network_targets,
 )
 from .win_network import discover_networks
+from .win_network import ping_statistics, read_network_interfaces
+from .scanner import InventoryScanner, ScanScopeError, parse_custom_ranges
+from .store import NetworkStore
 
 DEFAULT_PORT = 18743
 MAX_BODY_BYTES = 8 * 1024
@@ -161,18 +166,327 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
         data: bytes,
         *,
         head_only: bool = False,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(str(name), str(value))
         self.end_headers()
         if not head_only:
             try:
                 self.wfile.write(data)
             except (BrokenPipeError, ConnectionResetError):
                 return
+
+    def _store(self) -> NetworkStore:
+        store = getattr(self.server, "store", None)
+        if store is None:
+            raise ApiError(503, "device store is unavailable")
+        return store
+
+    def _inventory_scanner(self) -> InventoryScanner:
+        scanner = getattr(self.server, "inventory_scanner", None)
+        if scanner is None:
+            raise ApiError(503, "inventory scanner is unavailable")
+        return scanner
+
+    def _network_snapshot(self, force: bool = False) -> dict:
+        server = self.server
+        cache = getattr(server, "network_cache", None)
+        if not force and cache is not None and time.monotonic() - cache["at"] < 12:
+            return cache
+        warnings: list[str] = []
+        try:
+            interfaces = read_network_interfaces()
+        except Exception as exc:  # display a useful warning instead of hiding the app
+            interfaces = []
+            warnings.append(f"网卡详情读取失败：{exc}")
+        try:
+            targets, discovery_warnings = discover_networks()
+            warnings.extend(discovery_warnings)
+        except Exception as exc:
+            targets = []
+            warnings.append(f"网段发现失败：{exc}")
+        known = {str(item.get("interface_id") or "") for item in interfaces}
+        for target in targets:
+            interface_id = target.interface_id or f"{target.interface}|{target.interface_index}"
+            if interface_id in known:
+                continue
+            interfaces.append(
+                {
+                    "interface_id": interface_id,
+                    "interface_index": target.interface_index,
+                    "alias": target.interface,
+                    "description": "",
+                    "local_ip": target.local_ip,
+                    "prefix_length": target.prefix_length,
+                    "network": target.network,
+                    "broadcast": target.broadcast,
+                    "scan_range": target.scan_range,
+                    "segment_id": f"{interface_id}|{target.scan_range}",
+                    "gateway": target.gateway,
+                    "dns_servers": [],
+                    "local_mac": target.local_mac,
+                    "host_count": target.host_count,
+                    "is_virtual": False,
+                    "is_up": True,
+                }
+            )
+            known.add(interface_id)
+        segments = [network_target_payload(target) for target in targets]
+        try:
+            self._store().sync_network_snapshot(interfaces, segments)
+        except Exception:
+            LOGGER.exception("failed to persist network snapshot")
+        snapshot = {
+            "at": time.monotonic(),
+            "interfaces": interfaces,
+            "segments": segments,
+            "warnings": warnings,
+        }
+        with server.network_lock:
+            server.network_cache = snapshot
+        return snapshot
+
+    def _send_csv(self, body: str, filename: str, *, head_only: bool = False) -> None:
+        safe_name = Path(str(filename or "export.csv")).name.replace('"', "")
+        self._send_bytes(
+            200,
+            "text/csv; charset=utf-8",
+            body.encode("utf-8"),
+            head_only=head_only,
+            extra_headers={
+                "Content-Disposition": f'attachment; filename="{safe_name}"',
+            },
+        )
+
+    def _dispatch_v2(self, method: str, parts: list[str], *, head_only: bool = False) -> None:
+        store = self._store()
+        scanner = self._inventory_scanner()
+        if not parts:
+            raise ApiError(404, "not found")
+        if parts == ["bootstrap"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            snapshot = self._network_snapshot()
+            devices = store.list_devices()
+            counts = {"total": len(devices), "online": 0, "offline": 0, "unknown": 0, "favorites": 0}
+            for device in devices:
+                status = str(device.get("status") or "unknown")
+                counts[status] = counts.get(status, 0) + 1
+                if device.get("favorite"):
+                    counts["favorites"] += 1
+            history = store.list_scan_tasks(limit=30)
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "app": APP_ID,
+                    "name": APP_NAME,
+                    "version": __version__,
+                    "interfaces": snapshot["interfaces"],
+                    "segments": snapshot["segments"],
+                    "warnings": snapshot["warnings"],
+                    "devices": devices,
+                    "history": history,
+                    "settings": store.get_settings(),
+                    "summary": {
+                        "devices": counts,
+                        "last_scan": history[0] if history else None,
+                    },
+                    "scan": scanner.status(),
+                },
+                head_only=head_only,
+            )
+            return
+        if parts == ["interfaces"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            query = parse_qs(urlsplit(self.path).query)
+            force = str((query.get("refresh") or ["0"])[0]).lower() in {"1", "true", "yes"}
+            snapshot = self._network_snapshot(force=force)
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "app": APP_ID,
+                    "interfaces": snapshot["interfaces"],
+                    "segments": snapshot["segments"],
+                    "warnings": snapshot["warnings"],
+                },
+                head_only=head_only,
+            )
+            return
+        if parts == ["devices"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            devices = store.list_devices()
+            self._send_json(200, {"ok": True, "devices": devices}, head_only=head_only)
+            return
+        if len(parts) == 2 and parts[0] == "devices":
+            device_id = parts[1]
+            if method in {"GET", "HEAD"}:
+                device = store.get_device(device_id)
+                if device is None:
+                    raise ApiError(404, "设备不存在")
+                self._send_json(200, {"ok": True, "device": device}, head_only=head_only)
+                return
+            if method == "PATCH":
+                body = self._read_json_body()
+                device = store.update_device(device_id, body)
+                if device is None:
+                    raise ApiError(404, "设备不存在")
+                self._send_json(200, {"ok": True, "device": device})
+                return
+            raise ApiError(405, "method not allowed")
+        if parts == ["lookup"]:
+            if method == "POST":
+                body = self._read_json_body()
+                value = body.get("query", body.get("q", body.get("tokens", "")))
+            elif method in {"GET", "HEAD"}:
+                query = parse_qs(urlsplit(self.path).query)
+                value = (query.get("q") or query.get("query") or [""])[0]
+            else:
+                raise ApiError(405, "method not allowed")
+            try:
+                result = store.lookup_devices(value)
+            except ValueError as exc:
+                raise ApiError(400, str(exc)) from exc
+            self._send_json(200, {"ok": True, **result}, head_only=head_only)
+            return
+        if parts == ["analysis"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            snapshot = self._network_snapshot()
+            devices = store.list_devices()
+            distribution: dict[str, int] = {}
+            for device in devices:
+                key = str(device.get("current_scan_range") or "未知网段")
+                distribution[key] = distribution.get(key, 0) + 1
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "interfaces": snapshot["interfaces"],
+                    "segments": snapshot["segments"],
+                    "distribution": [
+                        {"segment": key, "count": value}
+                        for key, value in sorted(distribution.items(), key=lambda item: (-item[1], item[0]))
+                    ],
+                    "warnings": snapshot["warnings"],
+                },
+                head_only=head_only,
+            )
+            return
+        if parts == ["analysis", "ping"]:
+            if method != "POST":
+                raise ApiError(405, "method not allowed")
+            body = self._read_json_body()
+            address = str(body.get("address") or body.get("ip") or "").strip()
+            if not address:
+                snapshot = self._network_snapshot()
+                default_id = str(store.get_settings().get("default_interface_id") or "")
+                chosen = next(
+                    (item for item in snapshot["interfaces"] if item.get("interface_id") == default_id),
+                    None,
+                ) or next((item for item in snapshot["interfaces"] if item.get("gateway")), None)
+                address = str((chosen or {}).get("gateway") or "")
+            if not address:
+                raise ApiError(400, "请指定要探测的 IPv4 地址")
+            try:
+                count = max(1, min(10, int(body.get("count") or 4)))
+                timeout_ms = max(200, min(5000, int(body.get("timeout_ms") or store.get_settings().get("scan_timeout_ms") or 1000)))
+                result = ping_statistics(address, count, timeout_ms=timeout_ms)
+            except (CommandError, ValueError) as exc:
+                raise ApiError(400, str(exc)) from exc
+            self._send_json(200, {"ok": True, "result": result})
+            return
+        if parts == ["scan", "start"]:
+            if method != "POST":
+                raise ApiError(405, "method not allowed")
+            body = self._read_json_body()
+            try:
+                status = scanner.start(
+                    body.get("network_ids"),
+                    body.get("custom_ranges"),
+                    trigger=str(body.get("trigger") or "manual")[:32],
+                )
+            except ScanScopeError as exc:
+                message = str(exc)
+                raise ApiError(409 if "正在运行" in message else 400, message) from exc
+            self._send_json(202, {"ok": True, "app": APP_ID, "scan": status})
+            return
+        if len(parts) == 2 and parts[0] == "scan" and parts[1] in {"status", "pause", "resume", "stop"}:
+            action = parts[1]
+            if action == "status":
+                if method not in {"GET", "HEAD"}:
+                    raise ApiError(405, "method not allowed")
+                self._send_json(200, {"ok": True, "app": APP_ID, "scan": scanner.status()}, head_only=head_only)
+                return
+            if method != "POST":
+                raise ApiError(405, "method not allowed")
+            self._read_json_body()
+            changed = getattr(scanner, action)()
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "changed": changed,
+                    "scan": scanner.status(),
+                    "message": "ok" if changed else "no active scan state changed",
+                },
+            )
+            return
+        if parts == ["history"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            self._send_json(200, {"ok": True, "tasks": store.list_scan_tasks(200)}, head_only=head_only)
+            return
+        if len(parts) == 2 and parts[0] == "history":
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            task = store.get_scan_task(parts[1])
+            if task is None:
+                raise ApiError(404, "扫描记录不存在")
+            self._send_json(200, {"ok": True, "task": task}, head_only=head_only)
+            return
+        if parts == ["settings"]:
+            if method in {"GET", "HEAD"}:
+                self._send_json(200, {"ok": True, "settings": store.get_settings()}, head_only=head_only)
+                return
+            if method == "PATCH":
+                body = self._read_json_body()
+                try:
+                    settings = store.update_settings(body)
+                except ValueError as exc:
+                    raise ApiError(400, str(exc)) from exc
+                self._send_json(200, {"ok": True, "settings": settings})
+                return
+            raise ApiError(405, "method not allowed")
+        if parts == ["export", "devices.csv"]:
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            query = parse_qs(urlsplit(self.path).query)
+            raw_ids = (query.get("ids") or [""])[0]
+            ids = [item for item in raw_ids.split(",") if item.strip()]
+            body, filename = store.export_devices_csv(ids or None)
+            self._send_csv(body, filename, head_only=head_only)
+            return
+        if len(parts) == 3 and parts[0] == "export" and parts[1] == "history":
+            if method not in {"GET", "HEAD"}:
+                raise ApiError(405, "method not allowed")
+            task_id = parts[2][:-4] if parts[2].endswith(".csv") else parts[2]
+            try:
+                body, filename = store.export_scan_csv(task_id)
+            except ValueError as exc:
+                raise ApiError(404, str(exc)) from exc
+            self._send_csv(body, filename, head_only=head_only)
+            return
+        raise ApiError(404, "not found")
 
     def _serve_static(self, path: str, *, head_only: bool = False) -> None:
         relative = "index.html" if path in {"", "/"} else path.lstrip("/")
@@ -199,7 +513,7 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
-        self.send_header("Allow", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Allow", "GET, HEAD, POST, PATCH, OPTIONS")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -211,6 +525,9 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._dispatch("POST")
+
+    def do_PATCH(self) -> None:
+        self._dispatch("PATCH")
 
     def _read_json_body(self) -> dict:
         try:
@@ -239,6 +556,9 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                     self._serve_static("/", head_only=head_only)
                     return
                 raise ApiError(404, "not found")
+            if parts and parts[0] == "v2":
+                self._dispatch_v2(method, parts[1:], head_only=head_only)
+                return
             if parts == ["info"]:
                 self._send_json(
                     200,
@@ -252,6 +572,12 @@ class NetworkLocatorHandler(BaseHTTPRequestHandler):
                             "scan/start",
                             "scan/status",
                             "scan/stop",
+                            "v2/bootstrap",
+                            "v2/devices",
+                            "v2/lookup",
+                            "v2/analysis",
+                            "v2/history",
+                            "v2/settings",
                         ],
                     },
                     head_only=head_only,
@@ -419,17 +745,41 @@ class LocalAppServer(ThreadingHTTPServer):
     allow_reuse_address = False
     request_queue_size = 64
 
-    def __init__(self, server_address: tuple[str, int]) -> None:
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        *,
+        store: NetworkStore | None = None,
+        inventory_scanner: InventoryScanner | None = None,
+        auto_schedule: bool = True,
+    ) -> None:
         super().__init__(server_address, NetworkLocatorHandler)
         self.scan_manager = ScanManager()
         self.device_scan_lock = threading.Lock()
+        self._owns_store = store is None
+        self.store = store or NetworkStore()
+        self.inventory_scanner = inventory_scanner or InventoryScanner(
+            self.store,
+            auto_schedule=auto_schedule,
+        )
+        self.network_cache: dict[str, Any] | None = None
+        self.network_lock = threading.Lock()
 
 
 def start_server(
     port: int = DEFAULT_PORT,
     host: str = "127.0.0.1",
+    *,
+    store: NetworkStore | None = None,
+    inventory_scanner: InventoryScanner | None = None,
+    auto_schedule: bool = True,
 ) -> tuple[LocalAppServer, threading.Thread, str]:
-    server = LocalAppServer((host, int(port)))
+    server = LocalAppServer(
+        (host, int(port)),
+        store=store,
+        inventory_scanner=inventory_scanner,
+        auto_schedule=auto_schedule,
+    )
     thread = threading.Thread(
         target=server.serve_forever,
         kwargs={"poll_interval": 0.25},
@@ -446,8 +796,17 @@ def shutdown_server(
     thread: threading.Thread,
 ) -> None:
     LOGGER.info("stopping local server")
+    try:
+        server.inventory_scanner.shutdown()
+    except Exception:
+        LOGGER.exception("failed to stop inventory scanner")
     server.scan_manager.stop()
     server.scan_manager.wait(2.0)
     server.shutdown()
     thread.join(timeout=3)
     server.server_close()
+    if getattr(server, "_owns_store", False):
+        try:
+            server.store.close()
+        except Exception:
+            LOGGER.exception("failed to close device store")

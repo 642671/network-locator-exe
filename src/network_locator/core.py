@@ -69,6 +69,7 @@ class NetworkTarget:
     local_source: str
     local_mac: str
     interface_index: int = 0
+    interface_id: str = ""
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -90,6 +91,13 @@ def network_target_key(target: NetworkTarget) -> str:
 def network_target_payload(target: NetworkTarget) -> dict:
     payload = target.as_dict()
     payload["network_id"] = network_target_key(target)
+    payload["segment_id"] = network_target_key(target)
+    if not payload.get("interface_id"):
+        payload["interface_id"] = (
+            f"{target.interface}|{target.interface_index}"
+            if target.interface_index
+            else target.interface
+        )
     return payload
 
 
@@ -172,6 +180,25 @@ def normalize_mac(value: str) -> str | None:
         return None
     upper = text.upper()
     return "-".join(upper[index : index + 2] for index in range(0, 12, 2))
+
+
+def normalize_device_mac(value: str) -> str | None:
+    """Normalize a MAC that can identify a real unicast device.
+
+    ARP tables can contain the Ethernet broadcast address and IPv4/IPv6
+    multicast mappings. Those values are not devices and must never become
+    inventory records.
+    """
+
+    normalized = normalize_mac(value)
+    if normalized is None:
+        return None
+    octets = bytes.fromhex(normalized.replace("-", ""))
+    if octets == b"\x00" * 6 or octets == b"\xff" * 6:
+        return None
+    if octets[0] & 0x01:
+        return None
+    return normalized
 
 
 def parse_ipv4_network(address: str, prefix_length: int) -> ipaddress.IPv4Network:
