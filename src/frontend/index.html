@@ -106,7 +106,7 @@
 
       <section class="view is-active" id="view-dashboard" data-view-panel="dashboard">
         <div class="page-heading"><div><span class="eyebrow">Overview</span><h2>设备总览</h2><p>当前局域网设备、网卡和最近一次扫描的统一视图。</p></div><div class="page-actions"><button class="btn btn-secondary" type="button" data-action="export-all"><svg class="icon"><use href="#i-download"></use></svg>导出 CSV</button><button class="btn btn-primary" type="button" data-action="quick-scan"><svg class="icon"><use href="#i-radar"></use></svg>立即扫描</button></div></div>
-        <div class="alert-stack" id="dashboardWarnings" hidden></div>
+        <div class="scan-notice" id="dashboardWarnings" hidden></div>
         <div class="stats-grid" id="dashboardStats"></div>
         <div class="dashboard-grid">
           <section class="card"><div class="card-header"><div><h3>当前网络</h3><p>活动网卡与可扫描网段</p></div><button class="text-button" type="button" data-action="refresh-interfaces">刷新</button></div><div class="network-summary" id="dashboardNetwork"></div></section>

@@ -29,7 +29,9 @@ from .win_network import ping_statistics, read_network_interfaces
 from .scanner import InventoryScanner, ScanScopeError, parse_custom_ranges
 from .store import NetworkStore
 
-DEFAULT_PORT = 18743
+# 0 lets the operating system assign a free TCP port on first bind. The
+# launcher remembers the assigned port so the WebView2 origin stays stable.
+DEFAULT_PORT = 0
 MAX_BODY_BYTES = 8 * 1024
 LOGGER = logging.getLogger("network_locator.server")
 

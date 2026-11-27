@@ -76,6 +76,11 @@ class FakeManager:
         del timeout
 
 
+class ServerDefaultTests(unittest.TestCase):
+    def test_default_port_is_os_assigned(self):
+        self.assertEqual(server_module.DEFAULT_PORT, 0)
+
+
 class ServerContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.target = make_target()

@@ -490,6 +490,25 @@ input[readonly] { color: var(--text-secondary); background: var(--surface-soft);
 .alert-item.is-info { color: var(--info); background: var(--info-soft); border-color: var(--primary-border); }
 .alert-item .icon { width: 15px; height: 15px; margin-top: 1px; }
 .alert-item span { min-width: 0; overflow-wrap: anywhere; }
+.scan-notice { margin-bottom: 13px; }
+.notice-collapse { color: var(--text-secondary); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11px; overflow: hidden; }
+.notice-collapse > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; list-style: none; user-select: none; }
+.notice-collapse > summary::-webkit-details-marker { display: none; }
+.notice-collapse > summary:hover { background: var(--surface-soft); }
+.notice-collapse > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.notice-icon { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 auto; color: var(--info); background: var(--info-soft); border-radius: 50%; }
+.notice-icon .icon { width: 12px; height: 12px; }
+.notice-title { min-width: 0; }
+.notice-title strong { color: var(--text); font-weight: 600; }
+.notice-action { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: var(--primary); font-weight: 600; white-space: nowrap; }
+.notice-action .icon { width: 13px; height: 13px; transition: transform 150ms ease; }
+.notice-when-open { display: none; }
+.notice-collapse[open] .notice-when-closed { display: none; }
+.notice-collapse[open] .notice-when-open { display: inline; }
+.notice-collapse[open] .notice-action .icon { transform: rotate(180deg); }
+.notice-list { display: grid; gap: 4px; margin: 0; padding: 0 12px 10px 40px; color: var(--text-secondary); }
+.notice-list li { overflow-wrap: anywhere; }
+.notice-list li::marker { color: var(--text-muted); }
 .connection-alert { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 10px 12px; color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: 8px; }
 .connection-alert > div { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .connection-alert strong { font-size: 12px; }

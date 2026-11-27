@@ -31,6 +31,15 @@ from network_locator.server import (
 from network_locator.win_network import discover_networks
 
 CONFIG_FILENAME = "config.json"
+PORT_CONFIG_KEY = "v2_port"
+PROFILE_LOCK_NAME = ".network-locator.lock"
+PROFILE_LOCK_MARKERS = {
+    # WebView2 keeps EBWebView\lockfile open for as long as the profile is
+    # in use. Chromium (Edge/Chrome app windows) does the same with the
+    # lockfile at the root of its user-data-dir.
+    "webview": ("EBWebView/lockfile",),
+    "browser-profile": ("lockfile",),
+}
 ICON_FILENAME = "network-locator.ico"
 NATIVE_WINDOW_TITLE = f"{APP_NAME} / Network Locator"
 NATIVE_WINDOW_TIMEOUT = 30.0
@@ -67,6 +76,18 @@ def load_config() -> dict:
         defaults.update(
             {key: value[key] for key in defaults if key in value}
         )
+        # 2.0.2 stores its preferred port under "v2_port" so it never
+        # overwrites (or inherits) the 1.3.x launcher's "v1_port". Older
+        # 2.0.x installs only have "port"; keep honouring it so their
+        # WebView2 origin (saved MACs and theme) survives the upgrade.
+        preferred = value.get(PORT_CONFIG_KEY, value.get("port", DEFAULT_PORT))
+        try:
+            preferred = int(preferred)
+        except (TypeError, ValueError):
+            preferred = DEFAULT_PORT
+        if preferred < 0 or preferred > 65535:
+            preferred = DEFAULT_PORT
+        defaults["port"] = preferred
     elif not path.exists():
         try:
             path.write_text(
@@ -76,6 +97,29 @@ def load_config() -> dict:
         except OSError:
             pass
     return defaults
+
+
+def save_config_port(port: int) -> None:
+    """Remember an OS-assigned port so the next launch keeps the same origin.
+
+    The value lives under "v2_port" and is merged into the existing config so
+    the 1.3.x "v1_port" setting and the browser preference are preserved.
+    """
+    path = app_data_dir() / CONFIG_FILENAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        value = {}
+    if not isinstance(value, dict):
+        value = {}
+    value[PORT_CONFIG_KEY] = int(port)
+    try:
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        logging.debug("failed to remember port %s", port, exc_info=True)
 
 
 def configure_logging() -> Path:
@@ -171,33 +215,159 @@ def find_browser(configured: str = "") -> str | None:
     return next((path for path in candidates if os.path.isfile(path)), None)
 
 
-def browser_profile_dir() -> Path:
-    path = app_data_dir() / "browser-profile"
+def instance_profile_dir(kind: str, port: int = 0, secondary: bool = False) -> Path:
+    """Return a per-instance profile directory.
+
+    The first instance uses the shared ``webview`` / ``browser-profile``
+    directory so WebView2 localStorage (theme, saved MACs) stays stable across
+    upgrades. A second concurrent instance uses ``<kind>-<port>`` instead.
+    """
+    name = f"{kind}-{int(port)}" if secondary else kind
+    path = app_data_dir() / name
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def webview_profile_dir() -> Path:
-    return app_data_dir() / "webview"
+def browser_profile_dir(port: int = 0, secondary: bool = False) -> Path:
+    return instance_profile_dir("browser-profile", port, secondary)
 
 
-def webview_state_path() -> Path:
-    return app_data_dir() / NATIVE_WINDOW_STATE_FILENAME
+def webview_profile_dir(port: int = 0, secondary: bool = False) -> Path:
+    return instance_profile_dir("webview", port, secondary)
 
 
-def read_native_state() -> dict:
+def _unlock_fd(fd: int) -> None:
     try:
-        value = json.loads(webview_state_path().read_text(encoding="utf-8"))
+        os.lseek(fd, 0, os.SEEK_SET)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        logging.debug("failed to release profile lock", exc_info=True)
+
+
+# File descriptors of locks this process holds for its lifetime. The OS
+# releases them when the process exits (including os._exit), so instances
+# never leave a stale lock behind.
+_HELD_PROFILE_LOCKS: list[int] = []
+
+
+def _try_lock_profile_dir(path: Path, hold: bool) -> bool:
+    """Try to take our own advisory lock on a profile directory."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        lock_path = path / PROFILE_LOCK_NAME
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    except OSError:
+        logging.debug("cannot open profile lock in %s", path, exc_info=True)
+        return False
+    try:
+        if os.fstat(fd).st_size == 0:
+            os.write(fd, b"0")
+        os.lseek(fd, 0, os.SEEK_SET)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if hold:
+            _HELD_PROFILE_LOCKS.append(fd)
+        else:
+            _unlock_fd(fd)
+            os.close(fd)
+        return True
+    except OSError:
+        os.close(fd)
+        return False
+
+
+def _profile_marker_locked(kind: str, path: Path) -> bool:
+    for relative in PROFILE_LOCK_MARKERS.get(kind, ()):
+        marker = path / relative
+        if not marker.exists():
+            continue
+        try:
+            with open(marker, "r+b"):
+                pass
+        except OSError:
+            return True
+    return False
+
+
+def profile_in_use(kind: str, port: int = 0) -> bool:
+    """Return True when another instance holds the shared profile."""
+    path = instance_profile_dir(kind, port, False)
+    if _profile_marker_locked(kind, path):
+        return True
+    return not _try_lock_profile_dir(path, hold=False)
+
+
+def select_profile_dir(kind: str, port: int) -> Path:
+    """Pick and lock the shared profile, or the per-port one if it is busy.
+
+    Locking happens in the same step as the check so two instances starting
+    at the same moment cannot both claim the shared directory.
+    """
+    shared = instance_profile_dir(kind, port, False)
+    if not _profile_marker_locked(kind, shared) and _try_lock_profile_dir(
+        shared, hold=True
+    ):
+        return shared
+    logging.info(
+        "%s profile is in use; using %s-%s for this instance",
+        kind,
+        kind,
+        int(port),
+    )
+    secondary = instance_profile_dir(kind, port, True)
+    if not _try_lock_profile_dir(secondary, hold=True):
+        logging.warning("could not lock %s profile %s", kind, secondary)
+    return secondary
+
+
+def release_profile_locks() -> None:
+    """Release profile locks held by this process (used by tests)."""
+    while _HELD_PROFILE_LOCKS:
+        fd = _HELD_PROFILE_LOCKS.pop()
+        _unlock_fd(fd)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def webview_state_path(port: int = 0, secondary: bool = False) -> Path:
+    name = (
+        f"webview-state-{int(port)}.json"
+        if secondary
+        else NATIVE_WINDOW_STATE_FILENAME
+    )
+    return app_data_dir() / name
+
+
+def read_native_state(path: Path | None = None) -> dict:
+    state_path = webview_state_path() if path is None else path
+    try:
+        value = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
 
 
-def write_native_state(**fields) -> None:
+def write_native_state(path: Path | None = None, **fields) -> None:
+    state_path = webview_state_path() if path is None else path
     payload = {"updated": time.strftime("%Y-%m-%dT%H:%M:%S")}
     payload.update(fields)
     try:
-        webview_state_path().write_text(
+        state_path.write_text(
             json.dumps(payload, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -205,8 +375,8 @@ def write_native_state(**fields) -> None:
         logging.debug("failed to write native window state", exc_info=True)
 
 
-def prune_webview_backups(root: Path) -> None:
-    backups = sorted(root.glob("webview.bak-*"), reverse=True)
+def prune_webview_backups(root: Path, prefix: str = "webview") -> None:
+    backups = sorted(root.glob(f"{prefix}.bak-*"), reverse=True)
     for old in backups[WEBVIEW_PROFILE_BACKUP_LIMIT:]:
         try:
             if old.is_dir():
@@ -222,10 +392,10 @@ def backup_webview_profile(profile: Path | None = None) -> Path | None:
     if not source.exists():
         return None
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    target = source.with_name(f"webview.bak-{stamp}")
+    target = source.with_name(f"{source.name}.bak-{stamp}")
     suffix = 1
     while target.exists():
-        target = source.with_name(f"webview.bak-{stamp}-{suffix}")
+        target = source.with_name(f"{source.name}.bak-{stamp}-{suffix}")
         suffix += 1
     last_error: OSError | None = None
     for delay in (0.0, 0.5, 1.0, 2.0, 3.0):
@@ -237,19 +407,19 @@ def backup_webview_profile(profile: Path | None = None) -> Path | None:
             last_error = exc
             continue
         logging.warning("webview profile moved to %s", target)
-        prune_webview_backups(target.parent)
+        prune_webview_backups(target.parent, source.name)
         return target
     if last_error is not None:
         logging.error("failed to move webview profile %s: %s", source, last_error)
     return None
 
 
-def ensure_webview_profile() -> bool:
-    path = webview_profile_dir()
+def ensure_webview_profile(profile: Path | None = None) -> bool:
+    path = webview_profile_dir() if profile is None else profile
     try:
         if path.exists() and not path.is_dir():
             logging.warning("webview profile path is not a directory: %s", path)
-            backup_webview_profile()
+            backup_webview_profile(path)
         path.mkdir(parents=True, exist_ok=True)
         probe = path / ".write-probe"
         probe.write_text("ok", encoding="utf-8")
@@ -277,11 +447,17 @@ def native_window_outcome(
     return False, "原生窗口已打开但页面未能加载"
 
 
-def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
+def run_native_window(
+    url: str,
+    storage_path: Path | None = None,
+    state_path: Path | None = None,
+    on_loaded=None,
+) -> tuple[bool, str]:
     runtime = webview2_runtime_version()
     if not runtime:
         return False, "未检测到 Microsoft Edge WebView2 运行时"
-    if not ensure_webview_profile():
+    storage_path = webview_profile_dir() if storage_path is None else storage_path
+    if not ensure_webview_profile(storage_path):
         return False, "WebView2 缓存目录不可写"
     try:
         import webview
@@ -289,7 +465,6 @@ def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
         logging.exception("pywebview is unavailable")
         return False, f"pywebview 不可用（{exc}）"
 
-    storage_path = webview_profile_dir()
     icon = app_icon_path()
     shown = threading.Event()
     loaded = threading.Event()
@@ -299,7 +474,7 @@ def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
 
     def mark_loaded() -> None:
         loaded.set()
-        write_native_state(status="loaded", webview2=runtime, url=url)
+        write_native_state(state_path, status="loaded", webview2=runtime, url=url)
         if on_loaded is not None:
             try:
                 on_loaded()
@@ -349,7 +524,7 @@ def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
 
     started = time.monotonic()
     logging.info("native window starting webview2=%s url=%s", runtime, url)
-    write_native_state(status="starting", webview2=runtime, url=url)
+    write_native_state(state_path, status="starting", webview2=runtime, url=url)
     try:
         webview.start(
             gui="edgechromium",
@@ -359,7 +534,7 @@ def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
         )
     except Exception as exc:
         logging.exception("native window failed")
-        write_native_state(status="failed", reason=str(exc), webview2=runtime)
+        write_native_state(state_path, status="failed", reason=str(exc), webview2=runtime)
         return False, f"WebView2 窗口启动失败（{exc}）"
     finally:
         finished.set()
@@ -379,15 +554,16 @@ def run_native_window(url: str, on_loaded=None) -> tuple[bool, str]:
         timed_out.is_set(),
     )
     if ok:
-        write_native_state(status="loaded", webview2=runtime)
+        write_native_state(state_path, status="loaded", webview2=runtime)
         return True, ""
     logging.error("native window failed: %s", reason)
-    write_native_state(status="failed", reason=reason, webview2=runtime)
+    write_native_state(state_path, status="failed", reason=reason, webview2=runtime)
     return False, reason
 
 
-def native_window_result_file() -> Path:
-    return app_data_dir() / "native-window.json"
+def native_window_result_file(port: int = 0) -> Path:
+    name = f"native-window-{int(port)}.json" if port else "native-window.json"
+    return app_data_dir() / name
 
 
 def read_json_file(path: Path) -> dict:
@@ -419,7 +595,12 @@ def terminate_process(process: subprocess.Popen) -> None:
         logging.debug("process %s did not exit promptly", process.pid, exc_info=True)
 
 
-def run_native_window_mode(url: str, result_file: str) -> int:
+def run_native_window_mode(
+    url: str,
+    result_file: str,
+    storage_path: str | None = None,
+    state_path: str | None = None,
+) -> int:
     result_path = Path(result_file).resolve()
     result_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -435,15 +616,25 @@ def run_native_window_mode(url: str, result_file: str) -> int:
             logging.exception("failed to write native window result")
 
     report(status="starting", url=url)
-    ok, reason = run_native_window(url, on_loaded=lambda: report(status="loaded"))
+    ok, reason = run_native_window(
+        url,
+        storage_path=Path(storage_path) if storage_path else None,
+        state_path=Path(state_path) if state_path else None,
+        on_loaded=lambda: report(status="loaded"),
+    )
     report(status="ok" if ok else "failed", reason=reason)
     return 0 if ok else 1
 
 
-def run_native_window_isolated(url: str) -> tuple[bool, str]:
+def run_native_window_isolated(
+    url: str,
+    port: int,
+    storage_path: Path,
+    state_path: Path,
+) -> tuple[bool, str]:
     if not webview2_runtime_version():
         return False, "未检测到 Microsoft Edge WebView2 运行时"
-    result_file = native_window_result_file()
+    result_file = native_window_result_file(port)
     try:
         result_file.unlink()
     except OSError:
@@ -459,6 +650,10 @@ def run_native_window_isolated(url: str) -> tuple[bool, str]:
         url,
         "--result-file",
         str(result_file),
+        "--storage-path",
+        str(storage_path),
+        "--state-path",
+        str(state_path),
     ]
     logging.info("native window process starting: %s", command)
     try:
@@ -513,8 +708,9 @@ def run_native_window_isolated(url: str) -> tuple[bool, str]:
 def launch_app_window(
     url: str,
     browser: str,
+    profile_dir: Path | None = None,
 ) -> subprocess.Popen:
-    profile_dir = browser_profile_dir()
+    profile_dir = browser_profile_dir() if profile_dir is None else profile_dir
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         [
@@ -695,46 +891,90 @@ def gui_mode() -> str:
     return "auto"
 
 
-def run_application(port: int) -> int:
+def run_application(port: int, allow_port_fallback: bool = False) -> int:
     config = load_config()
     mode = gui_mode()
     try:
         server, thread, url = start_server(port)
     except OSError as exc:
-        show_error(
-            "无法启动 Network Locator 本地服务。\n\n"
-            f"端口 {port} 可能已被占用（{exc}）。\n"
-            "如果应用已在运行，请使用已打开的窗口；"
-            "否则请关闭占用该端口的程序后重试。"
-        )
-        return 2
+        if allow_port_fallback and port != 0:
+            logging.warning(
+                "port %s is unavailable (%s); letting the OS assign a free port",
+                port,
+                exc,
+            )
+            try:
+                server, thread, url = start_server(0)
+            except OSError as fallback_exc:
+                show_error(
+                    "无法启动 Network Locator 本地服务。\n\n"
+                    f"系统没有可用端口（{fallback_exc}）。"
+                )
+                return 2
+        else:
+            show_error(
+                "无法启动 Network Locator 本地服务。\n\n"
+                f"端口 {port} 可能已被占用（{exc}）。\n"
+                "如果应用已在运行，请使用已打开的窗口；"
+                "否则请关闭占用该端口的程序后重试。"
+            )
+            return 2
+
+    actual_port = int(server.server_address[1])
+    if allow_port_fallback and (port == 0 or actual_port == port):
+        # Remember the OS-assigned port so the next launch reuses the same
+        # origin and WebView2 keeps its localStorage data. Do not overwrite
+        # the preference when a busy preferred port forced a fallback.
+        save_config_port(actual_port)
 
     browser_process: subprocess.Popen | None = None
     native_reason = ""
     try:
-        logging.info("serving url=%s gui_mode=%s", url, mode)
+        webview_dir = select_profile_dir("webview", actual_port)
+        webview_secondary = webview_dir.name != "webview"
+        state_path = webview_state_path(actual_port, webview_secondary)
+        browser_dir = select_profile_dir("browser-profile", actual_port)
+        logging.info(
+            "serving port=%s url=%s gui_mode=%s webview_profile=%s browser_profile=%s",
+            actual_port,
+            url,
+            mode,
+            webview_dir.name,
+            browser_dir.name,
+        )
         if mode in {"auto", "native"}:
-            previous = read_native_state()
+            previous = read_native_state(state_path)
             if previous.get("status") in {"starting", "failed"}:
                 logging.warning(
-                    "previous native window did not load (status=%s); resetting WebView2 profile",
+                    "previous native window did not load (status=%s); resetting WebView2 profile %s",
                     previous.get("status"),
+                    webview_dir,
                 )
-                backup_webview_profile()
-            ok, reason = run_native_window_isolated(url)
+                backup_webview_profile(webview_dir)
+            ok, reason = run_native_window_isolated(
+                url,
+                actual_port,
+                webview_dir,
+                state_path,
+            )
             if ok:
                 return 0
             native_reason = reason
             logging.warning("native window unavailable: %s", reason)
             if mode == "native":
-                if backup_webview_profile():
-                    ok, reason = run_native_window_isolated(url)
+                if backup_webview_profile(webview_dir):
+                    ok, reason = run_native_window_isolated(
+                        url,
+                        actual_port,
+                        webview_dir,
+                        state_path,
+                    )
                     if ok:
                         return 0
                     native_reason = reason
                 show_error(f"无法启动原生窗口：{native_reason}")
                 return 3
-            backup_webview_profile()
+            backup_webview_profile(webview_dir)
 
         if mode in {"auto", "app-window"}:
             browser = find_browser(
@@ -742,7 +982,7 @@ def run_application(port: int) -> int:
                 or str(config.get("browser") or "")
             )
             if browser:
-                browser_process = launch_app_window(url, browser)
+                browser_process = launch_app_window(url, browser, browser_dir)
                 if native_reason:
                     notify_fallback(
                         f"{native_reason}，已改用浏览器应用窗口打开。"
@@ -783,6 +1023,8 @@ def main() -> int:
     parser.add_argument("--serve-only", action="store_true")
     parser.add_argument("--native-window", action="store_true")
     parser.add_argument("--url")
+    parser.add_argument("--storage-path")
+    parser.add_argument("--state-path")
     parser.add_argument("--ready-file")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--duration", type=float, default=0)
@@ -816,15 +1058,37 @@ def main() -> int:
         if not args.url or not args.result_file:
             show_error("--native-window requires --url and --result-file")
             return 2
-        return run_native_window_mode(args.url, args.result_file)
+        return run_native_window_mode(
+            args.url,
+            args.result_file,
+            args.storage_path,
+            args.state_path,
+        )
 
     configured = load_config()
-    port = args.port
-    if port is None:
-        port = int(os.environ.get("NETWORK_LOCATOR_PORT") or configured["port"])
+    allow_port_fallback = False
+    if args.port is not None:
+        # An explicit --port is honoured exactly (no silent fallback).
+        port = args.port
+    else:
+        env_port = (os.environ.get("NETWORK_LOCATOR_PORT") or "").strip()
+        if env_port:
+            try:
+                port = int(env_port)
+            except ValueError:
+                logging.warning(
+                    "ignoring invalid NETWORK_LOCATOR_PORT=%s", env_port
+                )
+                port = 0
+        else:
+            # Prefer the port used last time (it keeps the WebView2
+            # localStorage origin stable); fall back to an OS-assigned port
+            # when another instance already owns it.
+            port = int(configured.get("port") or 0)
+            allow_port_fallback = True
     set_app_user_model_id()
     try:
-        return run_application(port)
+        return run_application(port, allow_port_fallback)
     except Exception as exc:
         show_error(f"应用启动失败：{exc}")
         return 1

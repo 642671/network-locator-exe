@@ -25,6 +25,7 @@
     interfaces: [],
     segments: [],
     warnings: [],
+    dashboardWarningsOpen: false,
     history: [],
     settings: {},
     scan: {},
@@ -397,9 +398,27 @@
     if (warnings) {
       if (state.warnings.length) {
         warnings.hidden = false;
-        warnings.innerHTML = state.warnings.slice(0, 5).map(function (warning) {
-          return '<div class="alert-item">' + icon("i-alert") + "<span>" + esc(warning) + "</span></div>";
-        }).join("");
+        warnings.innerHTML =
+          '<details class="notice-collapse"' + (state.dashboardWarningsOpen ? " open" : "") + ">" +
+            "<summary>" +
+              '<span class="notice-icon">' + icon("i-info") + "</span>" +
+              '<span class="notice-title">扫描提示：<strong>' + state.warnings.length + "</strong> 个网卡/地址被跳过</span>" +
+              '<span class="notice-action">' +
+                '<span class="notice-when-closed">展开明细</span>' +
+                '<span class="notice-when-open">收起明细</span>' +
+                icon("i-chevron-down") +
+              "</span>" +
+            "</summary>" +
+            '<ul class="notice-list">' + state.warnings.map(function (warning) {
+              return "<li>" + esc(warning) + "</li>";
+            }).join("") + "</ul>" +
+          "</details>";
+        var details = warnings.querySelector("details");
+        if (details) {
+          details.addEventListener("toggle", function () {
+            state.dashboardWarningsOpen = details.open;
+          });
+        }
       } else {
         warnings.hidden = true;
         warnings.innerHTML = "";
