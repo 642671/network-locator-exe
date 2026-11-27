@@ -1,7 +1,7 @@
 # Privacy Policy — Network Locator (Windows)
 
 Last updated: 2026-11-24
-Applies to: Network Locator for Windows 1.3.9 (`network-locator.exe`)
+Applies to: Network Locator for Windows 1.3.10 (`network-locator.exe`)
 
 This policy describes what the Windows build of **Network Locator** does with information. The application is a portable single-file executable that runs on the user's own computer. The publisher does not operate an account service for the app and does not receive a copy of anything a local installation creates.
 
