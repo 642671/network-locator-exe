@@ -54,24 +54,44 @@ def app_icon_path() -> Path | None:
 
 def load_config() -> dict:
     path = app_data_dir() / CONFIG_FILENAME
-    defaults = {"port": DEFAULT_PORT, "browser": ""}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         value = {}
-    if isinstance(value, dict):
-        defaults.update(
-            {key: value[key] for key in defaults if key in value}
+    if not isinstance(value, dict):
+        value = {}
+    # 1.3.x stores its preferred port under "v1_port" so that the 2.x
+    # launcher's "port" setting is never overwritten. Older 1.3.8 installs
+    # only have "port"; keep honouring it so their WebView2 storage origin
+    # (and therefore saved MACs and theme) survives the upgrade.
+    preferred = value.get("v1_port", value.get("port", DEFAULT_PORT))
+    try:
+        preferred = int(preferred)
+    except (TypeError, ValueError):
+        preferred = DEFAULT_PORT
+    return {
+        "port": preferred,
+        "browser": str(value.get("browser") or ""),
+    }
+
+
+def save_config_port(port: int) -> None:
+    """Remember an OS-assigned port so the next launch keeps the same origin."""
+    path = app_data_dir() / CONFIG_FILENAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        value = {}
+    if not isinstance(value, dict):
+        value = {}
+    value["v1_port"] = int(port)
+    try:
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
-    elif not path.exists():
-        try:
-            path.write_text(
-                json.dumps(defaults, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass
-    return defaults
+    except OSError:
+        logging.debug("failed to remember port %s", port, exc_info=True)
 
 
 def configure_logging() -> Path:
@@ -167,13 +187,44 @@ def find_browser(configured: str = "") -> str | None:
     return next((path for path in candidates if os.path.isfile(path)), None)
 
 
-def browser_profile_dir() -> Path:
-    path = app_data_dir() / "browser-profile"
+def webview_profile_dir() -> Path:
+    path = app_data_dir() / "webview"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def run_native_window(url: str) -> tuple[bool, str]:
+def webview_profile_in_use() -> bool:
+    """Return True when another process already holds the WebView2 profile.
+
+    WebView2 (and therefore any 1.3.x / 2.x instance using the same
+    ``%LOCALAPPDATA%`` folder) keeps ``EBWebView\\lockfile`` open with an
+    exclusive share mode while it runs. If that file cannot be opened for
+    writing, a second window must use its own profile directory.
+    """
+    lockfile = webview_profile_dir() / "EBWebView" / "lockfile"
+    if not lockfile.exists():
+        return False
+    try:
+        with open(lockfile, "r+b"):
+            return False
+    except OSError:
+        return True
+
+
+def instance_profile_dir(kind: str, port: int, secondary: bool) -> Path:
+    if secondary:
+        path = app_data_dir() / f"{kind}-{int(port)}"
+    else:
+        path = app_data_dir() / kind
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def browser_profile_dir(port: int, secondary: bool = False) -> Path:
+    return instance_profile_dir("browser-profile", port, secondary)
+
+
+def run_native_window(url: str, storage_path: Path) -> tuple[bool, str]:
     runtime = webview2_runtime_version()
     if not runtime:
         return False, "未检测到 Microsoft Edge WebView2 运行时"
@@ -183,7 +234,6 @@ def run_native_window(url: str) -> tuple[bool, str]:
         logging.exception("pywebview is unavailable")
         return False, f"pywebview 不可用（{exc}）"
 
-    storage_path = app_data_dir() / "webview"
     icon = app_icon_path()
     shown = threading.Event()
     loaded = threading.Event()
@@ -260,8 +310,8 @@ def run_native_window(url: str) -> tuple[bool, str]:
 def launch_app_window(
     url: str,
     browser: str,
+    profile_dir: Path,
 ) -> subprocess.Popen:
-    profile_dir = browser_profile_dir()
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         [
@@ -391,26 +441,60 @@ def gui_mode() -> str:
     return "auto"
 
 
-def run_application(port: int) -> int:
+def run_application(port: int, allow_port_fallback: bool = False) -> int:
     config = load_config()
     mode = gui_mode()
+    secondary_profile = webview_profile_in_use()
     try:
         server, thread, url = start_server(port)
     except OSError as exc:
-        show_error(
-            "无法启动 Network Locator 本地服务。\n\n"
-            f"端口 {port} 可能已被占用（{exc}）。\n"
-            "如果应用已在运行，请使用已打开的窗口；"
-            "否则请关闭占用该端口的程序后重试。"
-        )
-        return 2
+        if allow_port_fallback and port != 0:
+            logging.warning(
+                "port %s is unavailable (%s); letting the OS assign a free port",
+                port,
+                exc,
+            )
+            try:
+                server, thread, url = start_server(0)
+            except OSError as fallback_exc:
+                show_error(
+                    "无法启动 Network Locator 本地服务。\n\n"
+                    f"系统没有可用端口（{fallback_exc}）。"
+                )
+                return 2
+        else:
+            show_error(
+                "无法启动 Network Locator 本地服务。\n\n"
+                f"端口 {port} 可能已被占用（{exc}）。\n"
+                "如果应用已在运行，请使用已打开的窗口；"
+                "否则请关闭占用该端口的程序后重试。"
+            )
+            return 2
+
+    actual_port = int(server.server_address[1])
+    if allow_port_fallback and (port == 0 or actual_port == port):
+        # Auto mode: remember the port so the next launch reuses the same
+        # origin and WebView2 keeps its localStorage data. Do not overwrite
+        # the preference when a busy preferred port forced a fallback.
+        save_config_port(actual_port)
 
     browser_process: subprocess.Popen | None = None
     native_reason = ""
     try:
-        logging.info("serving url=%s gui_mode=%s", url, mode)
+        logging.info(
+            "serving port=%s url=%s gui_mode=%s secondary_profile=%s",
+            actual_port,
+            url,
+            mode,
+            secondary_profile,
+        )
         if mode in {"auto", "native"}:
-            ok, reason = run_native_window(url)
+            storage_path = instance_profile_dir(
+                "webview",
+                actual_port,
+                secondary_profile,
+            )
+            ok, reason = run_native_window(url, storage_path)
             if ok:
                 return 0
             native_reason = reason
@@ -425,7 +509,11 @@ def run_application(port: int) -> int:
                 or str(config.get("browser") or "")
             )
             if browser:
-                browser_process = launch_app_window(url, browser)
+                browser_process = launch_app_window(
+                    url,
+                    browser,
+                    browser_profile_dir(actual_port, secondary_profile),
+                )
                 if native_reason:
                     notify_fallback(f"{native_reason}，已改用浏览器应用窗口打开。")
                 wait_for_browser(browser_process)
@@ -486,12 +574,28 @@ def main() -> int:
         return run_server_only(port, args.ready_file, args.duration)
 
     configured = load_config()
-    port = args.port
-    if port is None:
-        port = int(os.environ.get("NETWORK_LOCATOR_PORT") or configured["port"])
+    allow_port_fallback = False
+    if args.port is not None:
+        port = args.port
+    else:
+        env_port = (os.environ.get("NETWORK_LOCATOR_PORT") or "").strip()
+        if env_port:
+            try:
+                port = int(env_port)
+            except ValueError:
+                logging.warning(
+                    "ignoring invalid NETWORK_LOCATOR_PORT=%s", env_port
+                )
+                port = 0
+        else:
+            # Prefer the port used last time (it keeps the WebView2
+            # localStorage origin stable); fall back to an OS-assigned port
+            # when another instance already owns it.
+            port = int(configured.get("port") or 0)
+            allow_port_fallback = True
     set_app_user_model_id()
     try:
-        return run_application(port)
+        return run_application(port, allow_port_fallback)
     except Exception as exc:
         show_error(f"应用启动失败：{exc}")
         return 1

@@ -4,7 +4,7 @@
 
 - 与 TOS 版 [`network-locator`](https://github.com/642671/network-locator) 1.3.7 使用同一套 WebUI 与匹配逻辑
 - 单文件 `network-locator.exe`，无需安装 Python 或浏览器扩展
-- 只在本机回环地址 `127.0.0.1:18743` 提供页面，不对局域网开放端口
+- 只在本机回环地址 `127.0.0.1` 的自动分配端口上提供页面，不对局域网开放端口；多个实例可同时运行
 - 使用 WebView2（pywebview）打开原生应用窗口，没有浏览器地址栏和标签页，界面与 TOS 版一致
 
 ## 功能
@@ -17,7 +17,8 @@
 | MAC 归一化 | `AA-BB`、`AA:BB`、`AABB` 三种输入；统一输出 `AA-BB-CC-DD-EE-FF` |
 | 扫描 | 选定网段、UDP 预热 ARP、并发 `ping` 探测、开始/停止状态机与进度 |
 | 设备总表 | 筛选、排序、复制 IP/MAC、CSV 导出、深浅色主题、工具提示 |
-| 常用 MAC | 保存常用后缀与备注，结果自动关联上次发现的 IP |
+| 常用 MAC | 最多保存 100 个常用后缀与备注，结果自动关联上次发现的 IP |
+| 个人设备视图 | 左侧「个人设备」入口只显示已保存 MAC 匹配到的设备 |
 | 持续搜索 | 多轮扫描，找到目标后自动结束；最多 10 轮无结果后提示 |
 
 扫描结果的“状态”含义：
@@ -49,12 +50,13 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `%LOCALAPPDATA%\NetworkLocator\config.json` | 端口与浏览器选择 |
+| `%LOCALAPPDATA%\NetworkLocator\config.json` | 上次使用的端口（`v1_port`）与浏览器选择 |
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | 运行日志 |
 | `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 原生窗口的本地存储（保留常用 MAC、主题与缓存） |
+| `%LOCALAPPDATA%\NetworkLocator\webview-<port>\` | 第二个同时运行的实例使用的独立 WebView2 存储 |
 | `%LOCALAPPDATA%\NetworkLocator\browser-profile\` | 回退到 Edge/Chrome 应用窗口时使用的浏览器配置 |
 
-设置 `NETWORK_LOCATOR_PORT` 可临时覆盖端口；设置 `NETWORK_LOCATOR_BROWSER` 可指定回退用的浏览器可执行文件。
+默认端口由系统自动分配并记录到 `config.json` 的 `v1_port`（不会覆盖 2.x 的 `port` 设置）：下次启动优先复用该端口，以保持 WebView2 本地存储（常用 MAC、主题）的页面来源不变；如果端口已被另一个实例占用，则自动改用系统分配的端口。`NETWORK_LOCATOR_PORT` 或命令行 `--port` 可强制指定端口；设置 `NETWORK_LOCATOR_BROWSER` 可指定回退用的浏览器可执行文件。
 
 设置 `NETWORK_LOCATOR_GUI` 可强制指定窗口模式，便于排查环境问题：
 
@@ -72,7 +74,7 @@ TOS 版是 Deb 应用，运行在 NAS 上，通过 systemd、Unix socket 和平�
 | TOS 版 | Windows 版 |
 | --- | --- |
 | systemd 服务 `network-locator` | 单进程 EXE，关闭窗口即退出 |
-| `/var/api/network-locator.sock` | `http://127.0.0.1:18743/` |
+| `/var/api/network-locator.sock` | `http://127.0.0.1:<自动分配的端口>/` |
 | 平台 iframe 代理与 TOS 会话 | 同源本地页面，无需平台鉴权 |
 | `ip addr` / `ip route` | `GetAdaptersInfo` + PowerShell 回退 |
 | `ip neigh` | `arp -a` |
@@ -93,7 +95,7 @@ Windows 上不再需要“登录会话”“平台代理”这类概念，因此
 
 ## 构建
 
-需要 Windows + Python 3.12/3.13：
+需要 Windows + Python 3.12 或更高版本：
 
 ```powershell
 python -m pip install -r requirements-build.txt
@@ -128,6 +130,7 @@ network-locator.exe --version
 - 回退的应用窗口需要 Microsoft Edge 或 Google Chrome；两者都没有时会使用默认浏览器
 - 目标主机或本机防火墙禁止 ICMP 时，ping 结果会缺失，但 ARP 缓存中的设备仍会显示为“陈旧”
 - 扫描范围沿用 TOS 版的安全上限：单个网段最多 1022 台主机
+- 多个实例同时运行时，后启动的实例会自动改用系统分配的端口和独立的 WebView2 存储目录；各实例的浏览器本地数据（常用 MAC、主题）按端口来源分别保存
 
 ## 许可证
 

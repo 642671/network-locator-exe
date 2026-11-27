@@ -24,7 +24,7 @@ from .core import (
 )
 from .win_network import discover_networks
 
-DEFAULT_PORT = 18743
+DEFAULT_PORT = 0
 MAX_BODY_BYTES = 8 * 1024
 LOGGER = logging.getLogger("network_locator.server")
 

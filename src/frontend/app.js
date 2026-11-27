@@ -21,7 +21,7 @@ var CONTINUOUS_RESTART_DELAY_MS = 1100;
 var MAX_NO_MATCH_ROUNDS = 10;
 var MAX_SUFFIX_INPUTS = 8;
 var SAVED_MACS_KEY = "networkLocator.savedMacs.v1";
-var SAVED_MACS_LIMIT = 8;
+var SAVED_MACS_LIMIT = 100;
 var SAVED_NOTE_LIMIT = 100;
 var SERVICE_RETRY_DELAY_MS = 2200;
 var REQUEST_TIMEOUT_MS = 12000;
@@ -91,7 +91,8 @@ var state = {
   probedHosts: 0,
   jobId: "",
   savedMacs: [],
-  savedPanelCollapsed: false
+  savedPanelCollapsed: false,
+  personalView: false
 };
 
 function byId(id) {
@@ -275,6 +276,90 @@ function matchSavedMac(entry, devices) {
     });
   }
   return matches;
+}
+
+function isPersonalDevice(device) {
+  var suffix = deviceMacSuffix(device && device.mac);
+  if (!suffix) {
+    return false;
+  }
+  return state.savedMacs.some(function (entry) {
+    return entry.normalized === suffix;
+  });
+}
+
+function personalDeviceRows() {
+  var base = state.tableMode === "results" ? state.results : state.devices;
+  return (Array.isArray(base) ? base : []).filter(isPersonalDevice);
+}
+
+function personalSummaryText() {
+  var saved = state.savedMacs.length;
+  var matched = personalDeviceRows().length;
+  if (!saved) {
+    return "还没有保存个人设备，可先在「我的设备」中添加 MAC 后缀。";
+  }
+  if (!matched) {
+    return "已保存 " + saved + " 个 MAC，当前没有匹配的设备。";
+  }
+  return "已保存 " + saved + " 个 MAC，当前有 " + matched + " 台设备匹配。";
+}
+
+function updatePersonalSummary() {
+  if (!state.personalView) {
+    return;
+  }
+  setText("resultSummary", personalSummaryText());
+}
+
+function syncViewSwitch() {
+  var allButton = byId("viewAllButton");
+  var personalButton = byId("viewPersonalButton");
+  if (allButton) {
+    allButton.classList.toggle("is-active", !state.personalView);
+    allButton.setAttribute("aria-pressed", state.personalView ? "false" : "true");
+  }
+  if (personalButton) {
+    personalButton.classList.toggle("is-active", state.personalView);
+    personalButton.setAttribute("aria-pressed", state.personalView ? "true" : "false");
+  }
+  var workspace = document.querySelector
+    ? document.querySelector(".workspace")
+    : null;
+  if (workspace) {
+    workspace.classList.toggle("is-personal", state.personalView);
+  }
+  setText("allDevicesCount", state.devices.length);
+  setText("personalDevicesCount", state.savedMacs.length);
+}
+
+function refreshPersonalTable() {
+  if (!state.personalView) {
+    return;
+  }
+  paintTableRows(true);
+}
+
+function setPersonalView(enabled) {
+  var next = !!enabled;
+  if (state.personalView === next) {
+    return;
+  }
+  state.personalView = next;
+  state.tableQuery = "";
+  resetSelection();
+  syncViewSwitch();
+  paintTableRows(true);
+  updatePersonalSummary();
+  if (!next && state.tableMode === "devices") {
+    setText(
+      "resultSummary",
+      state.devices.length
+        ? "当前网段共探测到 " + state.devices.length + " 台设备。"
+        : "当前网段中暂未探测到设备。"
+    );
+  }
+  updateControls();
 }
 
 function savedMacStatus(matches) {
@@ -522,11 +607,13 @@ function restoreDeviceCache() {
   if (state.tableMode === "devices") {
     renderDevices(devices, true);
     var stamp = formatTime(state.deviceCacheRestoredAt);
-    setText(
-      "resultSummary",
-      "已恢复上次探测到的 " + devices.length + " 台设备" +
-        (stamp ? "（" + stamp + "）" : "") + "。"
-    );
+    if (!state.personalView) {
+      setText(
+        "resultSummary",
+        "已恢复上次探测到的 " + devices.length + " 台设备" +
+          (stamp ? "（" + stamp + "）" : "") + "。"
+      );
+    }
     setText("scanFooterMeta", "已缓存设备 " + devices.length + " 台");
   }
   return true;
@@ -1807,10 +1894,12 @@ function updateControls() {
   stopButton.disabled = !searchActive || state.stopping;
   refreshButton.disabled =
     state.running || state.inventoryScanning || state.networkVerifying;
-  emptyRefreshButton.disabled =
-    (busy && !state.continuous) ||
-    state.networkVerifying ||
-    (state.tableMode === "devices" && state.networks.length > 0 && !hasSelection);
+  var personalAdd = state.personalView && !state.savedMacs.length;
+  emptyRefreshButton.disabled = personalAdd
+    ? false
+    : (busy && !state.continuous) ||
+      state.networkVerifying ||
+      (state.tableMode === "devices" && state.networks.length > 0 && !hasSelection);
   if (selectAllButton) {
     selectAllButton.disabled = selectionLocked ||
       !state.networks.length ||
@@ -1878,9 +1967,13 @@ function updateControls() {
         ? "停止持续搜索"
         : filteredEmpty
           ? "清除筛选"
-          : state.tableMode === "results"
-            ? "重新识别网段"
-            : "刷新设备总表"
+          : personalAdd
+            ? "添加个人设备"
+            : state.personalView
+              ? "刷新设备总表"
+              : state.tableMode === "results"
+                ? "重新识别网段"
+                : "刷新设备总表"
   );
   updateSavedDevicesLoading();
 }
@@ -1975,7 +2068,11 @@ function stateClass(value) {
 }
 
 function rawTableRows() {
-  return state.tableMode === "results" ? state.results : state.devices;
+  var base = state.tableMode === "results" ? state.results : state.devices;
+  if (!state.personalView) {
+    return base;
+  }
+  return (Array.isArray(base) ? base : []).filter(isPersonalDevice);
 }
 
 function normalizeTableQuery(value) {
@@ -2484,7 +2581,11 @@ function paintTableRows(preserveSelection) {
 
   setText(
     "tableHeading",
-    state.tableMode === "results" ? "匹配结果" : "设备总表"
+    state.personalView
+      ? "个人设备"
+      : state.tableMode === "results"
+        ? "匹配结果"
+        : "设备总表"
   );
   setText("resultCount", rows.length);
   setHidden("tableToolbar", sourceRows.length === 0);
@@ -2547,6 +2648,7 @@ function renderResults(results, force) {
 function renderDevices(devices, force) {
   renderTable(devices, "devices", force);
   renderSavedDevices();
+  updatePersonalSummary();
 }
 
 function renderEmptyForStatus(status) {
@@ -2557,6 +2659,23 @@ function renderEmptyForStatus(status) {
       "emptyMessage",
       "请调整关键词，或清除筛选查看全部 " + sourceRows.length + " 台设备。"
     );
+    return;
+  }
+  if (state.personalView) {
+    if (!state.savedMacs.length) {
+      setText("emptyTitle", "还没有个人设备");
+      setText(
+        "emptyMessage",
+        "先在「我的设备」中添加 MAC 后缀，保存后会在这里显示匹配的设备。"
+      );
+    } else {
+      setText("emptyTitle", "当前没有匹配的个人设备");
+      setText(
+        "emptyMessage",
+        "已保存 " + state.savedMacs.length +
+          " 个 MAC，但当前设备总表中没有匹配的设备。请刷新设备总表后再试。"
+      );
+    }
     return;
   }
   if (state.tableMode === "devices") {
@@ -3062,12 +3181,16 @@ async function refreshDevices(showError) {
       renderWarnings();
     }
     renderDevices(state.devices, true);
-    setText(
-      "resultSummary",
-      state.devices.length
-        ? "当前网段共探测到 " + state.devices.length + " 台设备。"
-        : "当前网段中暂未探测到设备。"
-    );
+    if (state.personalView) {
+      updatePersonalSummary();
+    } else {
+      setText(
+        "resultSummary",
+        state.devices.length
+          ? "当前网段共探测到 " + state.devices.length + " 台设备。"
+          : "当前网段中暂未探测到设备。"
+      );
+    }
     setText("scanFooterMeta", "已探测设备 " + state.devices.length + " 台");
     renderEmptyForStatus("idle");
     return true;
@@ -3530,12 +3653,16 @@ async function clearResults() {
   renderTargetSummary();
   state.results = [];
   renderDevices(state.devices, true);
-  setText(
-    "resultSummary",
-    state.devices.length
-      ? "当前网段共探测到 " + state.devices.length + " 台设备。"
-      : "当前网段中暂未探测到设备。"
-  );
+  if (state.personalView) {
+    updatePersonalSummary();
+  } else {
+    setText(
+      "resultSummary",
+      state.devices.length
+        ? "当前网段共探测到 " + state.devices.length + " 台设备。"
+        : "当前网段中暂未探测到设备。"
+    );
+  }
   setText("scanFooterMeta", "已探测设备 " + state.devices.length + " 台");
   setScanState(
     "idle",
@@ -4088,6 +4215,7 @@ function renderSavedDevices() {
   if (refresh) {
     refresh.disabled = state.inventoryScanning;
   }
+  syncViewSwitch();
 }
 
 function fillSavedView(entry) {
@@ -4314,6 +4442,7 @@ function saveSavedDevice() {
   persistSavedMacs(next);
   mergeSavedMacLastSeen(state.devices);
   renderSavedDevices();
+  refreshPersonalTable();
   updateControls();
   openSavedDeviceDialog("view", targetId);
   toast(editing ? "已更新" : "已保存", false);
@@ -4332,6 +4461,7 @@ function deleteSavedDevice() {
       return item.id !== id;
     }));
     renderSavedDevices();
+    refreshPersonalTable();
     updateControls();
     closeSavedDeviceDialog(true);
     toast("已删除", false);
@@ -4582,6 +4712,7 @@ function bindSavedDeviceEvents() {
     }
     state.savedMacs = readSavedMacs();
     renderSavedDevices();
+    refreshPersonalTable();
     if (savedDialogMode === "view" && savedDialogId) {
       var stillExists = state.savedMacs.some(function (item) {
         return item.id === savedDialogId;
@@ -4732,7 +4863,9 @@ function bindEvents() {
   });
   byId("selectAllNetworksButton").addEventListener("click", selectAllNetworks);
   byId("emptyRefreshButton").addEventListener("click", function () {
-    if (state.continuous) {
+    if (state.personalView && !state.savedMacs.length) {
+      openSavedDeviceDialog("create");
+    } else if (state.continuous) {
       stopScan();
     } else if (tableQueryActive() && rawTableRows().length) {
       clearTableFilter(true);
@@ -4740,6 +4873,18 @@ function bindEvents() {
       refreshNetworks();
     }
   });
+  var viewAllButton = byId("viewAllButton");
+  if (viewAllButton) {
+    viewAllButton.addEventListener("click", function () {
+      setPersonalView(false);
+    });
+  }
+  var viewPersonalButton = byId("viewPersonalButton");
+  if (viewPersonalButton) {
+    viewPersonalButton.addEventListener("click", function () {
+      setPersonalView(!state.personalView);
+    });
+  }
   byId("copyButton").addEventListener("click", copySelectedMac);
   byId("copyIpButton").addEventListener("click", copySelectedIp);
   byId("exportButton").addEventListener("click", exportVisibleCsv);

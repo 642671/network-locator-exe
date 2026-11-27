@@ -72,8 +72,8 @@ test("reading saved MACs drops duplicates, invalid entries, and excess items", (
     { display: "C3D4" },
     { display: "not-a-mac" }
   ];
-  for (let index = 0; index < 10; index += 1) {
-    items.push({ display: "AA" + String(index).padStart(2, "0") });
+  for (let index = 0; index < 120; index += 1) {
+    items.push({ display: "A" + index.toString(16).padStart(3, "0") });
   }
   storage.set(
     context.SAVED_MACS_KEY,
@@ -169,7 +169,34 @@ test("merging a device scan fills last-seen fields for saved MACs", () => {
 });
 
 test("the saved MAC limit and note limit stay at the agreed values", () => {
-  assert.equal(context.SAVED_MACS_LIMIT, 8);
+  assert.equal(context.SAVED_MACS_LIMIT, 100);
   assert.equal(context.SAVED_NOTE_LIMIT, 100);
   assert.equal(context.SAVED_MACS_KEY, "networkLocator.savedMacs.v1");
+});
+
+test("personal device view matches the device table by saved MAC suffix", () => {
+  context.state.savedMacs = [
+    context.sanitizeSavedMac({ display: "A1B2" }),
+    context.sanitizeSavedMac({ display: "C3D4" })
+  ];
+  const devices = [
+    { ip: "10.0.0.5", mac: "02-42-AC-11-A1-B2" },
+    { ip: "10.0.0.6", mac: "02-42-AC-11-A1-B3" },
+    { ip: "10.0.0.7", mac: "02-42-AC-22-C3-D4" },
+    { ip: "10.0.0.8", mac: "not-a-mac" }
+  ];
+  assert.equal(context.isPersonalDevice(devices[0]), true);
+  assert.equal(context.isPersonalDevice(devices[1]), false);
+  assert.equal(context.isPersonalDevice(devices[2]), true);
+  assert.equal(context.isPersonalDevice(devices[3]), false);
+
+  context.state.tableMode = "devices";
+  context.state.devices = devices;
+  context.state.personalView = true;
+  assert.deepEqual(
+    Array.from(context.rawTableRows(), (device) => device.ip),
+    ["10.0.0.5", "10.0.0.7"]
+  );
+  context.state.personalView = false;
+  context.state.savedMacs = [];
 });

@@ -1,7 +1,7 @@
 # Privacy Policy — Network Locator (Windows)
 
 Last updated: 2026-11-24
-Applies to: Network Locator for Windows 1.3.8 (`network-locator.exe`)
+Applies to: Network Locator for Windows 1.3.9 (`network-locator.exe`)
 
 This policy describes what the Windows build of **Network Locator** does with information. The application is a portable single-file executable that runs on the user's own computer. The publisher does not operate an account service for the app and does not receive a copy of anything a local installation creates.
 
@@ -25,9 +25,10 @@ All data stays on the computer where the application runs:
 
 | Path | Contents |
 | --- | --- |
-| `%LOCALAPPDATA%\NetworkLocator\config.json` | local port and optional fallback browser path |
+| `%LOCALAPPDATA%\NetworkLocator\config.json` | local port (`v1_port`) and optional fallback browser path |
 | `%LOCALAPPDATA%\NetworkLocator\logs\app.log` | run log: version, window mode, local URL, service start/stop, errors |
 | `%LOCALAPPDATA%\NetworkLocator\webview\` | WebView2 profile used by the native window: saved MAC suffixes, theme choice, cache and cookies |
+| `%LOCALAPPDATA%\NetworkLocator\webview-<port>\` | separate WebView2 profile used when a second instance runs at the same time |
 | `%LOCALAPPDATA%\NetworkLocator\browser-profile\` | Edge/Chrome profile, used only when the app falls back to a browser app window |
 
 The log is append-only and is **not** rotated or deleted automatically. It can contain adapter names, local IP addresses and MAC addresses; it does not contain remote device data, file contents, or personal identifiers. You can delete the whole `NetworkLocator` folder at any time.
@@ -36,7 +37,7 @@ The log is append-only and is **not** rotated or deleted automatically. It can c
 
 No. The application code contains no telemetry, analytics, crash reporting, account sync, or update check, and it makes no requests to the publisher or to any third party.
 
-- The UI is served only on the loopback interface (`http://127.0.0.1:18743/` by default) and is not reachable from the LAN.
+- The UI is served only on the loopback interface (`http://127.0.0.1:<port>/`, where the port is chosen automatically and recorded in `config.json`) and is not reachable from the LAN.
 - Scanning sends ICMP echo requests and ARP-triggering UDP packets **only to the subnets you select**, and only from your own machine.
 - Nothing is written to the Windows registry, to a system service, or to a startup entry.
 
